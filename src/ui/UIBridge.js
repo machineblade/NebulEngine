@@ -220,6 +220,18 @@ export class UIBridge {
     }
 
     this._draggedScriptName = null;
+
+    // F2 — rename the currently active script. Ignored while typing in any
+    // other input / textarea / contenteditable.
+    window.addEventListener('keydown', (e) => {
+      if (e.key !== 'F2' || !this._activeScript) return;
+      const tag = e.target?.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || e.target?.isContentEditable) return;
+      const item = this._scriptListEl?.querySelector(
+        `.script-item[data-script-name="${CSS.escape(this._activeScript)}"]`);
+      if (item?._startRename) { e.preventDefault(); item._startRename(); }
+    });
+
     this._registerDefaultScript();
   }
 
@@ -318,21 +330,16 @@ export class UIBridge {
       // Helper to open the script in a draggable in-page window.
       const openScriptEditor = () => this._openFloatingScriptEditor(name);
 
-      // Double-click icon or item to open in new window
-      iconSpan.addEventListener('dblclick', (e) => {
-        e.stopPropagation();
-        openScriptEditor();
-      });
-
+      // Double-click *anywhere* on the card opens the floating script window.
       item.addEventListener('dblclick', (e) => {
-        if (e.target === nameSpan) return; // Don't open if double-clicking name (that's for rename)
         e.stopPropagation();
         openScriptEditor();
       });
 
-      // Double-click name to rename script
-      nameSpan.addEventListener('dblclick', (e) => {
-        e.stopPropagation();
+      // Rename: use the keyboard (F2 / Enter) while the script is selected,
+      // or the right-click context menu — double-click is reserved for
+      // opening the script window (matches Unity / Godot / VS Code).
+      const startRename = () => {
         const input = document.createElement('input');
         input.type = 'text';
         input.value = name;
@@ -348,6 +355,15 @@ export class UIBridge {
             this._scripts.delete(name);
             this._scripts.set(newName, script);
             if (this._activeScript === name) this._activeScript = newName;
+            // Re-key the open floating window under the new name, if any.
+            const openWin = this._floatingEditors.get(name);
+            if (openWin) {
+              this._floatingEditors.delete(name);
+              this._floatingEditors.set(newName, openWin);
+              openWin.dataset.scriptName = newName;
+              const titleEl = openWin.querySelector('.fw-title');
+              if (titleEl) titleEl.textContent = '📄 ' + newName;
+            }
             this._updateScriptList();
             this.logger.info('Script renamed: ' + name + ' → ' + newName);
           } else {
@@ -356,10 +372,18 @@ export class UIBridge {
         };
 
         input.addEventListener('blur', finishRename);
-        input.addEventListener('keydown', (e) => {
-          if (e.key === 'Enter') finishRename();
-          if (e.key === 'Escape') this._updateScriptList();
+        input.addEventListener('keydown', (ev) => {
+          if (ev.key === 'Enter')  { ev.preventDefault(); finishRename(); }
+          if (ev.key === 'Escape') { ev.preventDefault(); this._updateScriptList(); }
         });
+      };
+      item._startRename = startRename;
+
+      // Right-click → rename.
+      item.addEventListener('contextmenu', (e) => {
+        e.preventDefault();
+        this._activeScript = name;
+        startRename();
       });
 
       item.addEventListener('dragstart', (e) => {
@@ -370,12 +394,10 @@ export class UIBridge {
       item.addEventListener('dragend', () => {
         item.classList.remove('dragging');
       });
-      item.addEventListener('click', (e) => {
-        if (e.target !== nameSpan) {
-          this._activeScript = name;
-          this._updateScriptList();
-          this._loadSelectedScript();
-        }
+      item.addEventListener('click', () => {
+        this._activeScript = name;
+        this._updateScriptList();
+        this._loadSelectedScript();
       });
 
       this._scriptListEl.appendChild(item);
