@@ -230,7 +230,6 @@ html, body {
 .tb-btn:disabled { opacity: 0.3; cursor: not-allowed; }
 .tb-btn#btn-play:hover:not(:disabled)       { color: var(--green);   border-color: var(--green); }
 .tb-btn#btn-stop:hover:not(:disabled)       { color: var(--red);     border-color: var(--red); }
-.tb-btn#btn-spawn:hover:not(:disabled)      { color: var(--accent3); border-color: var(--accent3); }
 .tb-btn#btn-save-scene:hover:not(:disabled) { color: var(--yellow);  border-color: var(--yellow); }
 .tb-btn#btn-load-scene:hover:not(:disabled) { color: var(--yellow);  border-color: var(--yellow); }
 
@@ -322,6 +321,96 @@ aside {
 .hierarchy-item .ent-icon { font-size: 13px; }
 .hierarchy-item .ent-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .hierarchy-item .ent-id   { color: var(--text-dim); font-size: 9px; }
+
+/* ── Hierarchy Folders ─────────────────────── */
+.hierarchy-folder { list-style: none; }
+.folder-header {
+  padding: 5px 10px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  user-select: none;
+  color: var(--text-dim);
+}
+.folder-header:hover { background: var(--bg-hover); color: var(--text); }
+.folder-header.drag-over {
+  background: var(--bg-hover);
+  outline: 1px dashed var(--accent);
+  color: var(--accent);
+}
+.folder-chev {
+  width: 10px;
+  display: inline-block;
+  text-align: center;
+  font-size: 9px;
+}
+.folder-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.folder-name-input {
+  flex: 1;
+  background: var(--bg-void);
+  color: var(--text);
+  border: 1px solid var(--accent);
+  border-radius: 2px;
+  padding: 1px 4px;
+  font: inherit;
+  outline: none;
+}
+.folder-children {
+  list-style: none;
+  margin: 0;
+  padding-left: 18px;
+  border-left: 1px dashed var(--border);
+  margin-left: 10px;
+}
+
+/* ── Hierarchy Context Menu ────────────────── */
+.ctx-menu {
+  position: fixed;
+  min-width: 180px;
+  background: var(--bg-panel);
+  color: var(--text);
+  border: 1px solid var(--border-bright);
+  border-radius: 4px;
+  box-shadow: 0 8px 24px rgba(0,0,0,.45);
+  z-index: 9999;
+  font-size: 12px;
+  padding: 4px 0;
+  display: none;
+}
+.ctx-menu.open { display: block; }
+.ctx-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.ctx-item {
+  position: relative;
+  padding: 6px 12px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  user-select: none;
+  white-space: nowrap;
+}
+.ctx-item:hover { background: var(--bg-hover); color: var(--accent); }
+.ctx-label { flex: 1; }
+.ctx-chev  { opacity: 0.6; font-size: 10px; }
+.ctx-submenu {
+  display: none;
+  position: absolute;
+  left: 100%;
+  top: -4px;
+  min-width: 160px;
+  background: var(--bg-panel);
+  border: 1px solid var(--border-bright);
+  border-radius: 4px;
+  box-shadow: 0 8px 24px rgba(0,0,0,.45);
+  padding: 4px 0;
+}
+.ctx-item.has-submenu:hover > .ctx-submenu { display: block; }
 
 /* ── Script List ──────────────────────────── */
 .script-list {

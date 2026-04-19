@@ -13,6 +13,7 @@ export class UIBridge {
     this._inspectorEl  = document.getElementById('inspector-content');
     this._statusEntEl  = document.getElementById('status-entities');
     this._statusTimeEl = document.getElementById('status-time');
+    this._ctxMenuEl    = document.getElementById('hier-ctx-menu');
 
     this._scripts      = new Map();
     this._activeScript = null;
@@ -21,10 +22,19 @@ export class UIBridge {
     this._floatingEditors = new Map();
     this._floatingZ       = 1000;
 
+    // Folder model — folders are UI-only (not scene entities):
+    //   _folders        id → { id, name, expanded }
+    //   _entityFolder   entityId → folderId (or undefined when top-level)
+    //   _folderNextId   monotonically-increasing id generator
+    this._folders       = new Map();
+    this._entityFolder  = new Map();
+    this._folderNextId  = 1;
+
     this._bindEvents();
     this._setupWorkspace();
     this._setupHierarchyResizer();
     this._setupConsole();
+    this._setupHierarchyContextMenu();
   }
 
   _bindEvents () {
@@ -96,11 +106,62 @@ export class UIBridge {
     return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
   }
 
-  // ── Hierarchy ─────────────────────────────────────────────
+  // ── Hierarchy (tree with folders) ─────────────────────────
   _onEntityAdded (entity) {
+    this._rebuildHierarchy();
+  }
+
+  _onEntityRemoved (entity) {
+    this._entityFolder.delete(entity.id);
+    if (this._selected === entity.id) {
+      this._selected = null;
+      this.engine.setSelectedEntity(null);
+      this._showInspectorEmpty();
+      this._updateWorkspaceSelection(null);
+    }
+    this._rebuildHierarchy();
+  }
+
+  _onSceneCleared () {
+    this._entityFolder.clear();
+    this._selected = null;
+    this.engine.setSelectedEntity(null);
+    this._showInspectorEmpty();
+    this._updateWorkspaceSelection(null);
+    this._rebuildHierarchy();
+  }
+
+  /**
+   * Rebuild the hierarchy DOM from the current entities + folder model.
+   * Cheap enough for the kinds of scenes this editor supports (dozens of
+   * entities); if we ever outgrow that we'd switch to incremental patches.
+   */
+  _rebuildHierarchy () {
+    if (!this._hierarchyEl) return;
+    this._hierarchyEl.innerHTML = '';
+
+    // Folders first (sorted by creation order = numeric id).
+    const folderIds = [...this._folders.keys()].sort((a, b) => a - b);
+    for (const fid of folderIds) {
+      const folder = this._folders.get(fid);
+      this._hierarchyEl.appendChild(this._renderFolderNode(folder));
+    }
+
+    // Then top-level entities (not inside any folder).
+    for (const entity of this.engine.scene.getAllEntities()) {
+      if (this._entityFolder.has(entity.id)) continue;
+      this._hierarchyEl.appendChild(this._renderEntityNode(entity));
+    }
+
+    this._highlightHierarchy(this._selected);
+  }
+
+  _renderEntityNode (entity) {
     const li = document.createElement('li');
     li.className  = 'hierarchy-item';
     li.dataset.id = entity.id;
+    li.dataset.kind = 'entity';
+    li.draggable = true;
 
     const spr   = entity.getComponent('sprite');
     const icon  = this._shapeIcon(spr?.shape);
@@ -108,30 +169,359 @@ export class UIBridge {
 
     li.innerHTML = `
       <span class="ent-icon" style="color:${color}">${icon}</span>
-      <span class="ent-name">${entity.name}</span>
+      <span class="ent-name">${this._esc(entity.name)}</span>
       <span class="ent-id">#${entity.id}</span>
     `;
     li.addEventListener('click', () => this.engine.setSelectedEntity(entity.id));
-    this._hierarchyEl.appendChild(li);
+
+    // Drag entity → folder = reparent. Drag entity → blank list = unparent.
+    li.addEventListener('dragstart', (e) => {
+      e.stopPropagation();
+      e.dataTransfer.setData('application/x-nebul-entity', String(entity.id));
+      e.dataTransfer.effectAllowed = 'move';
+    });
+
+    return li;
   }
 
-  _onEntityRemoved (entity) {
-    const li = this._hierarchyEl.querySelector(`[data-id="${entity.id}"]`);
-    if (li) li.remove();
-    if (this._selected === entity.id) {
-      this._selected = null;
-      this.engine.setSelectedEntity(null);
-      this._showInspectorEmpty();
-      this._updateWorkspaceSelection(null);
+  _renderFolderNode (folder) {
+    const wrapper = document.createElement('li');
+    wrapper.className = 'hierarchy-folder';
+    wrapper.dataset.folderId = folder.id;
+    wrapper.dataset.kind = 'folder';
+
+    const header = document.createElement('div');
+    header.className = 'folder-header';
+    if (folder.expanded === false) header.classList.add('collapsed');
+
+    const chev = document.createElement('span');
+    chev.className = 'folder-chev';
+    chev.textContent = folder.expanded === false ? '▸' : '▾';
+
+    const icon = document.createElement('span');
+    icon.className = 'ent-icon';
+    icon.textContent = '📁';
+
+    const nameEl = document.createElement('span');
+    nameEl.className = 'ent-name folder-name';
+    nameEl.textContent = folder.name;
+
+    header.appendChild(chev);
+    header.appendChild(icon);
+    header.appendChild(nameEl);
+
+    // Click chevron / header → toggle expand/collapse (but skip when clicking
+    // directly on the name so double-click-to-rename still works).
+    header.addEventListener('click', (e) => {
+      if (e.target === nameEl) return;
+      folder.expanded = folder.expanded === false ? true : false;
+      this._rebuildHierarchy();
+    });
+
+    // Double-click name → inline rename; Enter commits, Escape reverts.
+    nameEl.addEventListener('dblclick', (e) => {
+      e.stopPropagation();
+      this._beginFolderRename(folder, nameEl);
+    });
+
+    // Drop target for entity reparenting.
+    header.addEventListener('dragover', (e) => {
+      if (!e.dataTransfer.types.includes('application/x-nebul-entity')) return;
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'move';
+      header.classList.add('drag-over');
+    });
+    header.addEventListener('dragleave', () => header.classList.remove('drag-over'));
+    header.addEventListener('drop', (e) => {
+      header.classList.remove('drag-over');
+      const entId = parseInt(e.dataTransfer.getData('application/x-nebul-entity'), 10);
+      if (!Number.isFinite(entId)) return;
+      e.preventDefault();
+      this._setEntityFolder(entId, folder.id);
+    });
+
+    wrapper.appendChild(header);
+
+    if (folder.expanded !== false) {
+      const childList = document.createElement('ul');
+      childList.className = 'folder-children';
+      for (const entity of this.engine.scene.getAllEntities()) {
+        if (this._entityFolder.get(entity.id) !== folder.id) continue;
+        childList.appendChild(this._renderEntityNode(entity));
+      }
+      wrapper.appendChild(childList);
     }
+
+    return wrapper;
   }
 
-  _onSceneCleared () {
-    this._hierarchyEl.innerHTML = '';
-    this._selected = null;
-    this.engine.setSelectedEntity(null);
-    this._showInspectorEmpty();
-    this._updateWorkspaceSelection(null);
+  _beginFolderRename (folder, nameEl) {
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.value = folder.name;
+    input.className = 'folder-name-input';
+    nameEl.replaceWith(input);
+    input.focus();
+    input.select();
+
+    const commit = (save) => {
+      if (save) {
+        const v = input.value.trim();
+        if (v) folder.name = v;
+      }
+      this._rebuildHierarchy();
+    };
+    input.addEventListener('keydown', (ev) => {
+      if (ev.key === 'Enter')  { ev.preventDefault(); commit(true); }
+      if (ev.key === 'Escape') { ev.preventDefault(); commit(false); }
+    });
+    input.addEventListener('blur', () => commit(true));
+  }
+
+  _setEntityFolder (entityId, folderId) {
+    if (folderId == null) this._entityFolder.delete(entityId);
+    else                  this._entityFolder.set(entityId, folderId);
+    this._rebuildHierarchy();
+    const ent = this.engine.scene.getEntity(entityId);
+    const fol = folderId != null ? this._folders.get(folderId) : null;
+    if (ent && fol) this.logger.info(`Moved ${ent.name} → ${fol.name}`);
+    else if (ent)   this.logger.info(`Moved ${ent.name} → (root)`);
+  }
+
+  _createFolder (name = 'New Folder') {
+    const id = this._folderNextId++;
+    this._folders.set(id, { id, name, expanded: true });
+    this._rebuildHierarchy();
+    this.logger.info('Folder created: ' + name);
+    return id;
+  }
+
+  _removeFolder (folderId) {
+    if (!this._folders.has(folderId)) return;
+    // Move any children back to the root rather than deleting them.
+    for (const [entId, fid] of this._entityFolder) {
+      if (fid === folderId) this._entityFolder.delete(entId);
+    }
+    this._folders.delete(folderId);
+    this._rebuildHierarchy();
+  }
+
+  // ── Hierarchy Context Menu ────────────────────────────────
+  _setupHierarchyContextMenu () {
+    if (!this._hierarchyEl || !this._ctxMenuEl) return;
+
+    // Suppress the browser's native menu and route to our custom one.
+    this._hierarchyEl.addEventListener('contextmenu', (e) => {
+      e.preventDefault();
+
+      // Find the clicked row (if any) by walking up to a folder header or
+      // entity row. Clicking outside both opens the empty-space menu.
+      const folderHeader = e.target.closest('.folder-header');
+      const entityRow    = e.target.closest('.hierarchy-item');
+
+      if (folderHeader) {
+        const wrapper = folderHeader.closest('.hierarchy-folder');
+        const fid = parseInt(wrapper?.dataset.folderId, 10);
+        this._openCtxMenu(e.clientX, e.clientY, this._folderMenuItems(fid));
+      } else if (entityRow) {
+        const id = parseInt(entityRow.dataset.id, 10);
+        this._openCtxMenu(e.clientX, e.clientY, this._entityMenuItems(id));
+      } else {
+        this._openCtxMenu(e.clientX, e.clientY, this._emptyMenuItems());
+      }
+    });
+
+    // Drop on blank hierarchy space → unparent the entity (move to root).
+    this._hierarchyEl.addEventListener('dragover', (e) => {
+      if (!e.dataTransfer.types.includes('application/x-nebul-entity')) return;
+      if (e.target.closest('.folder-header')) return;    // folder handles its own
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'move';
+    });
+    this._hierarchyEl.addEventListener('drop', (e) => {
+      if (e.target.closest('.folder-header')) return;
+      const entId = parseInt(e.dataTransfer.getData('application/x-nebul-entity'), 10);
+      if (!Number.isFinite(entId)) return;
+      e.preventDefault();
+      this._setEntityFolder(entId, null);
+    });
+
+    // Dismiss on outside-click / scroll / Escape.
+    document.addEventListener('click', (e) => {
+      if (!this._ctxMenuEl.classList.contains('open')) return;
+      if (this._ctxMenuEl.contains(e.target)) return;
+      this._closeCtxMenu();
+    });
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && this._ctxMenuEl.classList.contains('open')) {
+        this._closeCtxMenu();
+      }
+    });
+    window.addEventListener('blur',   () => this._closeCtxMenu());
+    window.addEventListener('resize', () => this._closeCtxMenu());
+  }
+
+  /** Build the menu shown on empty hierarchy space. */
+  _emptyMenuItems () {
+    return [
+      {
+        label: 'New Object',
+        submenu: [
+          { label: 'Star',           action: () => this.engine.spawnEntity('star') },
+          { label: 'Circle',         action: () => this.engine.spawnEntity('circle') },
+          { label: 'Square',         action: () => this.engine.spawnEntity('square') },
+          { label: 'Rounded Star',   action: () => this.engine.spawnEntity('rstar') },
+          { label: 'Rounded Square', action: () => this.engine.spawnEntity('rsquare') },
+        ],
+      },
+      {
+        label: 'New Folder',
+        action: () => this._createFolder('New Folder'),
+      },
+    ];
+  }
+
+  /** Build the menu shown when right-clicking a specific entity. */
+  _entityMenuItems (entityId) {
+    const entity = this.engine.scene.getEntity(entityId);
+    if (!entity) return [];
+    const ph = entity.getComponent('physics');
+    const pinned = !!ph?.pinned;
+
+    const folderList = [...this._folders.values()].sort((a, b) => a.id - b.id);
+    const setParentItems = [
+      {
+        label: '(Root)',
+        action: () => this._setEntityFolder(entityId, null),
+      },
+      ...folderList.map(f => ({
+        label: f.name,
+        action: () => this._setEntityFolder(entityId, f.id),
+      })),
+    ];
+
+    return [
+      {
+        label: 'Remove',
+        action: () => {
+          this.engine.scene.removeEntity(entityId);
+          this.logger.warn('Removed entity: ' + entity.name);
+        },
+      },
+      {
+        label: 'Gravity',
+        submenu: [
+          {
+            label: pinned ? 'Pin ✓' : 'Pin',
+            action: () => {
+              if (!ph?.body) return;
+              ph.pinned = !pinned;
+              Matter.Body.setStatic(ph.body, ph.pinned);
+              if (ph.pinned) {
+                Matter.Body.setVelocity(ph.body, { x: 0, y: 0 });
+                Matter.Body.setAngularVelocity(ph.body, 0);
+              }
+              this.events.emit('ui:inspectorDirty', entityId);
+              this.logger.info(`${ph.pinned ? 'Pinned' : 'Unpinned'}: ${entity.name}`);
+            },
+          },
+        ],
+      },
+      {
+        label: 'Set Parent',
+        submenu: setParentItems,
+      },
+    ];
+  }
+
+  /** Build the menu shown when right-clicking a folder header. */
+  _folderMenuItems (folderId) {
+    const folder = this._folders.get(folderId);
+    if (!folder) return [];
+    return [
+      {
+        label: 'Rename',
+        action: () => {
+          // Schedule so the menu-close listeners finish before we mount the input.
+          setTimeout(() => {
+            const nameEl = this._hierarchyEl.querySelector(
+              `.hierarchy-folder[data-folder-id="${folderId}"] .folder-name`,
+            );
+            if (nameEl) this._beginFolderRename(folder, nameEl);
+          }, 0);
+        },
+      },
+      {
+        label: 'Remove Folder',
+        action: () => this._removeFolder(folderId),
+      },
+    ];
+  }
+
+  _openCtxMenu (x, y, items) {
+    const m = this._ctxMenuEl;
+    if (!m) return;
+    m.innerHTML = '';
+    m.appendChild(this._buildCtxItems(items));
+
+    // Open first so we can measure it, then clamp to viewport bounds.
+    m.classList.add('open');
+    m.setAttribute('aria-hidden', 'false');
+    const rect = m.getBoundingClientRect();
+    const maxX = window.innerWidth  - rect.width  - 4;
+    const maxY = window.innerHeight - rect.height - 4;
+    m.style.left = Math.min(x, Math.max(0, maxX)) + 'px';
+    m.style.top  = Math.min(y, Math.max(0, maxY)) + 'px';
+  }
+
+  _closeCtxMenu () {
+    const m = this._ctxMenuEl;
+    if (!m) return;
+    m.classList.remove('open');
+    m.setAttribute('aria-hidden', 'true');
+    m.innerHTML = '';
+  }
+
+  /**
+   * Recursively render a list of ctx-menu items. Items may have either an
+   * `action` (leaf) or a `submenu` (nested list). Clicking an action closes
+   * the menu and invokes the handler. Hovering a submenu item expands it
+   * inline (CSS `:hover` + absolutely-positioned child).
+   */
+  _buildCtxItems (items) {
+    const list = document.createElement('ul');
+    list.className = 'ctx-list';
+    for (const it of items) {
+      const li = document.createElement('li');
+      li.className = 'ctx-item';
+      if (it.submenu) li.classList.add('has-submenu');
+
+      const label = document.createElement('span');
+      label.className = 'ctx-label';
+      label.textContent = it.label;
+      li.appendChild(label);
+
+      if (it.submenu) {
+        const chev = document.createElement('span');
+        chev.className = 'ctx-chev';
+        chev.textContent = '▸';
+        li.appendChild(chev);
+
+        const sub = this._buildCtxItems(it.submenu);
+        sub.classList.add('ctx-submenu');
+        li.appendChild(sub);
+      } else if (typeof it.action === 'function') {
+        li.addEventListener('click', (e) => {
+          e.stopPropagation();
+          this._closeCtxMenu();
+          try { it.action(); }
+          catch (err) { this.logger.error('Menu action failed: ' + err.message); }
+        });
+      }
+
+      list.appendChild(li);
+    }
+    return list;
   }
 
   // ── Selection ─────────────────────────────────────────────
@@ -270,9 +660,10 @@ export class UIBridge {
     // Matter.Body.setVelocity(ph.body, {x, y}) — set velocity
     // ph.applyForce(fx, fy, dt)    — push the body
     // ph.enabled = false           — freeze physics
-    // ph.anchored = true           — lock the body in place (stronger than fixed)
+    // ph.pinned = true             — lock the body in place (total motion lock)
     // ph.gravity.enabled = false   — ignore world + local gravity
     // ph.gravity.force   = 5       — extra per-entity gravity force
+    // this.world.settings.gravity.strength = 2  — change world gravity
     if (this.ph) this.ph.rotate(2, dt);
   }
 })`;
@@ -611,7 +1002,7 @@ export class UIBridge {
       : { enabled: true, force: (typeof ph?.gravity === 'number' ? ph.gravity : 0) };
     const gravEn   = gravObj.enabled !== false;
     const gravForce = Number.isFinite(gravObj.force) ? gravObj.force : 0;
-    const anchored = ph ? !!ph.anchored             : false;
+    const pinned = ph ? !!ph.pinned                 : false;
     const phEn   = ph ? ph.enabled                  : false;
 
     const rotDeg = spr && Number.isFinite(spr.rotation) ? (spr.rotation * 180 / Math.PI).toFixed(1) : '0';
@@ -656,11 +1047,8 @@ export class UIBridge {
           <button class="insp-toggle-btn" id="insp-toggle-physics">${phEn ? '⏸ Disable' : '▶ Enable'}</button>
         </div>
         <div class="insp-row"><span class="insp-label">Enabled</span><span class="insp-value" style="color:${phEn ? 'var(--green)' : 'var(--red)'}">${phEn}</span></div>
-        <div class="insp-row"><span class="insp-label">Anchored</span>
-          <input class="insp-check" data-field="anchored" type="checkbox" ${anchored ? 'checked' : ''} title="Locks position/rotation; freezes all motion" />
-        </div>
-        <div class="insp-row"><span class="insp-label">Fixed</span>
-          <input class="insp-check" data-field="fixed" type="checkbox" ${ph.fixed ? 'checked' : ''} />
+        <div class="insp-row"><span class="insp-label">Pinned</span>
+          <input class="insp-check" data-field="pinned" type="checkbox" ${pinned ? 'checked' : ''} title="Locks the body in place; zeroes velocity every frame" />
         </div>
         <div class="insp-row"><span class="insp-label">Vel X</span><span class="insp-value" data-live="velX">${Number.isFinite(velX) ? velX.toFixed(1) : 'n/a'}</span></div>
         <div class="insp-row"><span class="insp-label">Vel Y</span><span class="insp-value" data-live="velY">${Number.isFinite(velY) ? velY.toFixed(1) : 'n/a'}</span></div>
@@ -782,20 +1170,15 @@ export class UIBridge {
         }
         break;
       }
+      case 'pinned':
+      // Legacy save/load fields (anchored / fixed) still accepted — both
+      // forward to the unified `pinned` flag.
+      case 'anchored':
       case 'fixed': {
         if (!ph?.body) break;
-        ph.fixed = !!raw;
-        if (!ph.anchored) Matter.Body.setStatic(ph.body, ph.fixed);
-        break;
-      }
-      case 'anchored': {
-        if (!ph?.body) break;
-        ph.anchored = !!raw;
-        // The PhysicsComponent.update() loop picks up the change and calls
-        // setStatic itself, but we nudge it here so it's visible before PLAY.
-        const shouldStatic = ph.anchored || ph.fixed;
-        if (ph.body.isStatic !== shouldStatic) Matter.Body.setStatic(ph.body, shouldStatic);
-        if (ph.anchored) {
+        ph.pinned = !!raw;
+        if (ph.body.isStatic !== ph.pinned) Matter.Body.setStatic(ph.body, ph.pinned);
+        if (ph.pinned) {
           Matter.Body.setVelocity(ph.body, { x: 0, y: 0 });
           Matter.Body.setAngularVelocity(ph.body, 0);
         }
@@ -844,9 +1227,12 @@ export class UIBridge {
   // ── Helpers ───────────────────────────────────────────────
   _shapeIcon (shape) {
     switch (shape) {
-      case 'rect':    return '▬';
+      case 'rect':
+      case 'rsquare': return '▢';
+      case 'square':  return '■';
       case 'diamond': return '◆';
       case 'star':    return '★';
+      case 'rstar':   return '✦';
       default:        return '●';
     }
   }
