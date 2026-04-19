@@ -592,17 +592,20 @@ class Engine {
 
     // Rotation ring — always circular, radius clears the bounding box + a
     // small margin. Handle dot sits on the ring at the current angle
-    // (`sprite.rotation = 0` puts the dot directly above the sprite).
+    // (`sprite.rotation = 0` puts the dot directly above the sprite in
+    // world space). The gizmo container itself may already be rotated (in
+    // local-space mode), so subtract that to avoid double-rotation.
     if (tool === 'rotate') {
       const ringR = Math.max(hx, hy) + 24;
       const ring  = parts.rotRing;
       ring.clear();
       ring.lineStyle(2, 0xff2b2b, 0.9);
       ring.drawCircle(0, 0, ringR);
-      // Tick from center to handle so it's obvious which way is "up".
       ring.lineStyle(1, 0xff2b2b, 0.35);
-      const hx0 = Math.cos(sprite.rotation - Math.PI / 2) * ringR;
-      const hy0 = Math.sin(sprite.rotation - Math.PI / 2) * ringR;
+      const gizmoRot = this._gizmo ? this._gizmo.rotation : 0;
+      const ang = sprite.rotation - Math.PI / 2 - gizmoRot;
+      const hx0 = Math.cos(ang) * ringR;
+      const hy0 = Math.sin(ang) * ringR;
       ring.moveTo(0, 0); ring.lineTo(hx0, hy0);
       parts.rotHandle.position.set(hx0, hy0);
     }
