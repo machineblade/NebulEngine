@@ -17,6 +17,10 @@ export class UIBridge {
     this._scripts      = new Map();
     this._activeScript = null;
 
+    // Floating script editor windows — keyed by script name.
+    this._floatingEditors = new Map();
+    this._floatingZ       = 1000;
+
     this._bindEvents();
     this._setupWorkspace();
     this._setupHierarchyResizer();
@@ -311,25 +315,8 @@ export class UIBridge {
       item.appendChild(iconSpan);
       item.appendChild(nameSpan);
 
-      // Helper to open script in new window
-      const openScriptEditor = () => {
-        const scriptContent = this._scripts.get(name);
-        const newWindow = window.open('', 'script_' + name, 'width=800,height=600');
-        if (!newWindow) {
-          this.logger.error('Could not open new window - pop-ups may be blocked');
-          return;
-        }
-        newWindow.document.title = 'Script: ' + name;
-        newWindow.document.body.innerHTML = `
-          <style>
-            body { font-family: 'Share Tech Mono', monospace; background: #080c10; color: #c9d8e8; padding: 20px; margin: 0; line-height: 1.6; }
-            textarea { width: 100%; height: calc(100vh - 60px); background: #0d1117; border: 1px solid #2e4d6d; color: #c9d8e8; font-family: inherit; padding: 10px; font-size: 12px; }
-          </style>
-          <textarea id="scriptContent"></textarea>
-        `;
-        newWindow.document.getElementById('scriptContent').value = scriptContent;
-        this.logger.info('Opened script in new window: ' + name);
-      };
+      // Helper to open the script in a draggable in-page window.
+      const openScriptEditor = () => this._openFloatingScriptEditor(name);
 
       // Double-click icon or item to open in new window
       iconSpan.addEventListener('dblclick', (e) => {
@@ -393,6 +380,135 @@ export class UIBridge {
 
       this._scriptListEl.appendChild(item);
     }
+  }
+
+  // ── Floating Script Editor ────────────────────────────────
+  /**
+   * Open (or focus) a draggable/resizable/fullscreen/minimize/close window
+   * containing the source of the named script. Edits inside the window are
+   * mirrored back into `this._scripts` live, so closing the window doesn't
+   * lose work.
+   */
+  _openFloatingScriptEditor (name) {
+    if (!this._scripts.has(name)) {
+      this.logger.warn('Script not found: ' + name);
+      return;
+    }
+
+    // If already open, just bring it to front / un-minimize.
+    const existing = this._floatingEditors.get(name);
+    if (existing) {
+      existing.style.display = 'flex';
+      existing.classList.remove('minimized');
+      existing.style.zIndex = ++this._floatingZ;
+      existing.querySelector('textarea')?.focus();
+      return;
+    }
+
+    const layer = document.getElementById('script-windows-layer') || document.body;
+    const win = document.createElement('div');
+    win.className = 'floating-window script-editor-window';
+    win.dataset.scriptName = name;
+    win.style.zIndex = ++this._floatingZ;
+
+    // Initial geometry — cascade new windows so stacked opens don't overlap.
+    const offset = this._floatingEditors.size * 24;
+    win.style.left   = (80 + offset) + 'px';
+    win.style.top    = (80 + offset) + 'px';
+    win.style.width  = '560px';
+    win.style.height = '420px';
+
+    win.innerHTML = `
+      <div class="fw-header">
+        <span class="fw-title">📄 ${this._esc(name)}</span>
+        <div class="fw-actions">
+          <button class="fw-btn fw-min"  title="Minimize">—</button>
+          <button class="fw-btn fw-full" title="Toggle fullscreen">⛶</button>
+          <button class="fw-btn fw-close" title="Close">✕</button>
+        </div>
+      </div>
+      <textarea class="fw-textarea" spellcheck="false"></textarea>
+      <div class="fw-resize" title="Drag to resize"></div>
+    `;
+
+    const ta = win.querySelector('textarea');
+    ta.value = this._scripts.get(name);
+    ta.addEventListener('input', () => {
+      this._scripts.set(name, ta.value);
+      // Keep the bottom-panel script editor in sync if the same script is active.
+      if (this._activeScript === name && this._scriptEditorEl) {
+        this._scriptEditorEl.value = ta.value;
+      }
+    });
+
+    // Focus-to-front
+    win.addEventListener('pointerdown', () => {
+      win.style.zIndex = ++this._floatingZ;
+    });
+
+    // Drag from header
+    const header = win.querySelector('.fw-header');
+    header.addEventListener('pointerdown', (e) => {
+      if (e.target.closest('.fw-btn')) return;
+      if (win.classList.contains('fullscreen')) return;
+      const startX = e.clientX, startY = e.clientY;
+      const startL = win.offsetLeft, startT = win.offsetTop;
+      const onMove = (ev) => {
+        win.style.left = (startL + ev.clientX - startX) + 'px';
+        win.style.top  = Math.max(0, startT + ev.clientY - startY) + 'px';
+      };
+      const onUp = () => {
+        window.removeEventListener('pointermove', onMove);
+        window.removeEventListener('pointerup',   onUp);
+      };
+      window.addEventListener('pointermove', onMove);
+      window.addEventListener('pointerup',   onUp);
+      e.preventDefault();
+    });
+
+    // Resize from bottom-right grip
+    const grip = win.querySelector('.fw-resize');
+    grip.addEventListener('pointerdown', (e) => {
+      if (win.classList.contains('fullscreen')) return;
+      const startX = e.clientX, startY = e.clientY;
+      const startW = win.offsetWidth, startH = win.offsetHeight;
+      const onMove = (ev) => {
+        win.style.width  = Math.max(260, startW + ev.clientX - startX) + 'px';
+        win.style.height = Math.max(160, startH + ev.clientY - startY) + 'px';
+      };
+      const onUp = () => {
+        window.removeEventListener('pointermove', onMove);
+        window.removeEventListener('pointerup',   onUp);
+      };
+      window.addEventListener('pointermove', onMove);
+      window.addEventListener('pointerup',   onUp);
+      e.stopPropagation();
+      e.preventDefault();
+    });
+
+    // Buttons
+    win.querySelector('.fw-close').addEventListener('click', () => {
+      win.remove();
+      this._floatingEditors.delete(name);
+      this.logger.info('Closed script window: ' + name);
+    });
+    win.querySelector('.fw-min').addEventListener('click', () => {
+      win.classList.toggle('minimized');
+    });
+    win.querySelector('.fw-full').addEventListener('click', () => {
+      win.classList.toggle('fullscreen');
+    });
+
+    // Double-click header to toggle fullscreen (familiar desktop behavior).
+    header.addEventListener('dblclick', (e) => {
+      if (e.target.closest('.fw-btn')) return;
+      win.classList.toggle('fullscreen');
+    });
+
+    layer.appendChild(win);
+    this._floatingEditors.set(name, win);
+    ta.focus();
+    this.logger.info('Opened script window: ' + name);
   }
 
   _assignScript () {

@@ -1,4 +1,4 @@
-# NebulEngine v1.2.0
+# NebulEngine v1.3.0
 
 A modular browser-based **game engine** built with **PixiJS** (rendering), **Matter.js** (physics) and **Howler.js** (audio).
 
@@ -48,16 +48,21 @@ work.
 
 ## Editor Controls
 
-| Button       | Action                                |
-|--------------|---------------------------------------|
-| ▶ PLAY      | Start the scene loop                  |
-| ⏸ PAUSE     | Pause / resume the loop               |
-| ⏹ STOP      | Stop the loop (scene is preserved)    |
-| ＋ SPAWN     | Add a random entity                   |
-| 🗑 CLEAR     | Remove all entities                   |
-| 💾 SAVE      | Download the current scene as JSON    |
-| 📂 LOAD      | Load a scene from a JSON file         |
-| 🔊 AUDIO     | Toggle mute                           |
+| Button        | Action                                                  |
+|---------------|---------------------------------------------------------|
+| ▶ PLAY       | Start the scene loop                                    |
+| ⏸ PAUSE      | Pause / resume the loop                                 |
+| ⏹ STOP       | Stop the loop (scene keeps all edits; nothing reverts)  |
+| ✥ MOVE       | Show X / Y translate arrows on the selection gizmo      |
+| ↻ ROTATE     | Show rotation ring on the selection gizmo               |
+| ⇲ SCALE      | Show four corner handles — drag to resize the entity    |
+| ▦ GRID       | Toggle the grid overlay                                 |
+| SNAP dropdown | Grid size used when repositioning (Off / 10 / 20 / 40 / 80 px) |
+| ＋ SPAWN      | Add a random entity                                     |
+| 🗑 CLEAR      | Remove all entities                                     |
+| 💾 SAVE       | Download the current scene as JSON                      |
+| 📂 LOAD       | Load a scene from a JSON file                           |
+| 🔊 AUDIO      | Toggle mute                                             |
 
 Click any entity in the **Hierarchy** panel (or in the viewport) to select
 it. The **Inspector** panel lets you edit transform, color, alpha, gravity,
@@ -80,17 +85,33 @@ bounce, drag and the *fixed* flag in place — changes apply instantly.
 | Left-click + drag body  | Free-drag selected entity in X + Y      |
 | Drag gizmo X/Y arrow    | Axis-constrained drag                   |
 | Drag gizmo rotation ring| Rotate the entity                       |
-| `Shift` + drag          | Snap translation to grid / rotation 15° |
+| `Q` / `W` / `E`         | Select Move / Rotate / Scale tool       |
+| `G`                     | Toggle grid overlay                     |
+| `Shift` + drag          | Force snap / rotation 15° / non-uniform scale |
 
 Shortcuts are ignored while focus is inside the script editor or an inspector
 field, so typing code never accidentally triggers the engine.
 
 ### Play ↔ Edit
 
-Pressing **PLAY** snapshots the entire scene (every entity's position,
-rotation, alpha, color, and physics config). Pressing **STOP** restores that
-snapshot — so anything that moved, rotated, or otherwise changed during
-simulation is reverted back to the state you authored.
+Pressing **STOP** halts the simulation loop but leaves every entity exactly
+where it is — nothing is reverted. If you want to roll back a change, use
+`Ctrl/Cmd + Z`.
+
+### Script windows
+
+Double-click a script card in the bottom-right **Scripts** panel to open a
+floating editor window for that script. Each window is:
+
+- **Draggable** — grab the header and drag anywhere on screen.
+- **Resizable** — drag the bottom-right grip.
+- **Fullscreen** — click ⬜ in the header, or double-click the header.
+- **Minimizable** — click — in the header to collapse to a title bar.
+- **Closable** — click ✕ to close. Edits are persisted automatically, so
+  re-opening the script brings back the most recent source.
+
+Multiple script windows can be open at once; clicking any window brings it
+to the front.
 
 ### Collision hooks
 
@@ -162,6 +183,27 @@ npm test
 ```
 
 ## Changelog
+
+### v1.3.0
+
+- **Floating script editor windows** — double-click a script card to open a
+  draggable / resizable / fullscreen / minimizable / closable window with
+  the script source. Edits are synced back to the script immediately; the
+  previous browser-popup window has been replaced entirely.
+- **Transform tool toolbar** — `Move` / `Rotate` / `Scale` buttons, separated
+  from the `Play / Pause / Stop` group. Hotkeys `Q` / `W` / `E`. The
+  selection gizmo now shows only the handles for the active tool.
+- **Scale tool** — four corner handles that resize the entity in local
+  space. Uniform by default; hold `Shift` for non-uniform scaling.
+- **Grid overlay and snap dropdown** — new `Grid` toggle (hotkey `G`) shows
+  a stage-space grid. The adjacent `Snap` dropdown sets the grid step used
+  when repositioning (`Off`, `10`, `20`, `40`, `80` px). When snap is on,
+  drags snap without needing `Shift`; when it's `Off`, `Shift` still
+  snaps on demand.
+- **Stop no longer reverts** — Per feedback, the play-time snapshot from
+  v1.2 has been removed. Pressing `STOP` now leaves entities exactly where
+  they ended up. Undo (`Ctrl/Cmd + Z`) is still available for step-by-step
+  rollback.
 
 ### v1.2.0
 

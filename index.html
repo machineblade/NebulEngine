@@ -22,12 +22,32 @@
     <header id="engine-header">
       <div id="logo">
         <span class="logo-nebul">NEBUL</span><span class="logo-engine">ENGINE</span>
-        <span id="engine-version">v1.0.0</span>
+        <span id="engine-version">v1.3.0</span>
       </div>
       <nav id="engine-toolbar">
         <button class="tb-btn" id="btn-play"  title="Play Scene">▶ PLAY</button>
         <button class="tb-btn" id="btn-pause" title="Pause" disabled>⏸ PAUSE</button>
         <button class="tb-btn" id="btn-stop"  title="Stop"  disabled>⏹ STOP</button>
+        <div class="tb-sep"></div>
+        <div class="tb-group" id="tool-group">
+          <button class="tb-btn tb-tool active" id="btn-tool-move"   data-tool="move"   title="Move Tool (Q)">✥ MOVE</button>
+          <button class="tb-btn tb-tool"        id="btn-tool-rotate" data-tool="rotate" title="Rotate Tool (W)">↻ ROTATE</button>
+          <button class="tb-btn tb-tool"        id="btn-tool-scale"  data-tool="scale"  title="Scale Tool (E)">⇲ SCALE</button>
+        </div>
+        <div class="tb-sep"></div>
+        <div class="tb-group" id="grid-group">
+          <button class="tb-btn" id="btn-grid-toggle" title="Toggle grid visibility (G)">▦ GRID</button>
+          <label class="tb-snap-label" title="Snap objects to grid when repositioning">
+            SNAP
+            <select class="tb-select" id="sel-grid-snap">
+              <option value="0">OFF</option>
+              <option value="10">10 px</option>
+              <option value="20" selected>20 px</option>
+              <option value="40">40 px</option>
+              <option value="80">80 px</option>
+            </select>
+          </label>
+        </div>
         <div class="tb-sep"></div>
         <button class="tb-btn" id="btn-spawn" title="Spawn Entity">＋ SPAWN</button>
         <button class="tb-btn" id="btn-clear" title="Clear Scene">🗑 CLEAR</button>
@@ -113,6 +133,9 @@
     </div>
 
   </div>
+
+  <!-- Floating script editor windows mount here -->
+  <div id="script-windows-layer"></div>
 
   <!-- Engine Source -->
   <script type="module" src="src/core/Engine.js"></script>

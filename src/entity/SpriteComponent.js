@@ -15,6 +15,8 @@ export class SpriteComponent {
     this.w        = cfg.w     || 32;
     this.h        = cfg.h     || 32;
     this.alpha    = cfg.alpha !== undefined ? cfg.alpha : 1;
+    this.scaleX   = cfg.scaleX !== undefined ? cfg.scaleX : 1;
+    this.scaleY   = cfg.scaleY !== undefined ? cfg.scaleY : 1;
 
     this._gfx    = null;
     this._stage  = null;
@@ -94,6 +96,15 @@ export class SpriteComponent {
     this._gfx.x        = this.x;
     this._gfx.y        = this.y;
     this._gfx.rotation = this.rotation;
+    this._gfx.scale.set(this.scaleX, this.scaleY);
+  }
+
+  /** Axis-aligned half-extent in local (pre-rotation) space. Used by the
+   *  selection gizmo to place scale handles at the sprite's bounding box. */
+  halfExtents () {
+    const hx = (this.shape === 'rect' ? this.w / 2 : this.r) * this.scaleX;
+    const hy = (this.shape === 'rect' ? this.h / 2 : this.r) * this.scaleY;
+    return { hx, hy };
   }
 
   setColor (color) {
@@ -127,6 +138,8 @@ export class SpriteComponent {
       r: this.r,
       w: this.w,
       h: this.h,
+      scaleX: this.scaleX,
+      scaleY: this.scaleY,
     };
   }
 }

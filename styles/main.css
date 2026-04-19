@@ -628,4 +628,149 @@ aside {
 .insp-color::-webkit-color-swatch-wrapper { padding: 0; }
 .insp-color::-webkit-color-swatch { border: none; }
 
+/* ── Toolbar: Tool group, Grid, Snap dropdown ─────────────── */
+.tb-group {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.tb-btn.active {
+  background: var(--bg-hover);
+  border-color: var(--accent);
+  color: var(--accent);
+  box-shadow: 0 0 0 1px rgba(0, 229, 255, 0.25) inset;
+}
+#btn-grid-toggle.active {
+  color: var(--yellow);
+  border-color: var(--yellow);
+  box-shadow: 0 0 0 1px rgba(255, 211, 78, 0.35) inset;
+}
+
+.tb-snap-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--text-muted);
+  font-size: 9px;
+  letter-spacing: 0.1em;
+  padding-left: 4px;
+}
+.tb-select {
+  background: var(--bg-panel2);
+  border: 1px solid var(--border);
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  padding: 3px 6px;
+  cursor: pointer;
+  letter-spacing: 0.06em;
+}
+.tb-select:hover  { border-color: var(--accent); color: var(--accent); }
+.tb-select:focus  { outline: none; border-color: var(--accent); color: var(--accent); }
+
+/* ── Floating Script Editor Windows ───────────────────────── */
+#script-windows-layer {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;   /* children re-enable events per-window */
+  z-index: 900;
+}
+.floating-window {
+  position: absolute;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-panel);
+  border: 1px solid var(--border-bright);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.6), 0 0 0 1px rgba(0, 229, 255, 0.08);
+  pointer-events: auto;
+  min-width: 260px;
+  min-height: 160px;
+  border-radius: 4px;
+  overflow: hidden;
+}
+.floating-window.fullscreen {
+  left: 0 !important;
+  top: 0 !important;
+  width: 100vw !important;
+  height: 100vh !important;
+  border-radius: 0;
+}
+.floating-window.minimized {
+  height: 32px !important;
+  min-height: 32px;
+  overflow: hidden;
+  resize: none;
+}
+.floating-window.minimized .fw-textarea,
+.floating-window.minimized .fw-resize { display: none; }
+
+.fw-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 4px 8px;
+  background: var(--bg-void);
+  border-bottom: 1px solid var(--border);
+  cursor: move;
+  user-select: none;
+  flex-shrink: 0;
+  height: 32px;
+}
+.fw-title {
+  font-family: var(--font-display);
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  color: var(--accent);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.fw-actions { display: flex; gap: 2px; }
+.fw-btn {
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  width: 22px; height: 22px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 2px;
+}
+.fw-btn:hover { color: var(--accent); border-color: var(--border-bright); }
+.fw-close:hover { color: var(--red); border-color: var(--red); }
+
+.fw-textarea {
+  flex: 1;
+  width: 100%;
+  background: var(--bg-void);
+  color: var(--text-primary);
+  border: none;
+  padding: 10px 12px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.55;
+  resize: none;
+  outline: none;
+  tab-size: 2;
+}
+.fw-textarea:focus { background: #050a0f; }
+
+.fw-resize {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  width: 14px;
+  height: 14px;
+  cursor: nwse-resize;
+  background:
+    linear-gradient(135deg, transparent 0 6px, var(--border-bright) 6px 7px, transparent 7px 9px,
+                            var(--border-bright) 9px 10px, transparent 10px);
+}
+.floating-window.fullscreen .fw-resize { display: none; }
+
 .insp-check { cursor: pointer; accent-color: var(--accent); }
