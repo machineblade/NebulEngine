@@ -119,16 +119,23 @@ export class SceneManager {
       const lx = dx * cos - dy * sin;
       const ly = dx * sin + dy * cos;
 
+      // Account for the sprite's visual scale — the PIXI Graphics is
+      // scaled in syncGraphics, so hitTest must match the rendered size.
+      const sx = sprite.scaleX ?? 1;
+      const sy = sprite.scaleY ?? 1;
       switch (sprite.shape) {
         case 'rect':
-          if (Math.abs(lx) <= sprite.w / 2 && Math.abs(ly) <= sprite.h / 2) return entity;
+          if (Math.abs(lx) <= (sprite.w * sx) / 2 && Math.abs(ly) <= (sprite.h * sy) / 2) return entity;
           break;
         case 'diamond':
         case 'star':
         case 'circle':
         default: {
-          const radius = sprite.r || Math.max(sprite.w, sprite.h) / 2;
-          if (Math.hypot(dx, dy) <= radius) return entity;
+          // Non-uniform scale on a circular shape → use an elliptical test so
+          // clicks still land on the visible silhouette.
+          const rx = (sprite.r || Math.max(sprite.w, sprite.h) / 2) * sx;
+          const ry = (sprite.r || Math.max(sprite.w, sprite.h) / 2) * sy;
+          if (rx > 0 && ry > 0 && ((lx * lx) / (rx * rx) + (ly * ly) / (ry * ry)) <= 1) return entity;
         }
       }
     }

@@ -16,7 +16,7 @@ import { ScriptComponent }  from '../entity/ScriptComponent.js';
 
 class Engine {
   constructor () {
-    this.version    = '1.2.0';
+    this.version    = '1.3.0';
     this.running    = false;
     this.paused     = false;
     this.elapsed    = 0;
@@ -31,13 +31,18 @@ class Engine {
     this._panning   = false;
     this._panStart  = { mx: 0, my: 0, vx: 0, vy: 0 };
     this._gridSize  = 20;
+    this._gridVisible = false;
+    this._snapSize  = 20;   // 0 = off (Shift still snaps ad-hoc)
+    this._gridGfx   = null;
 
-    // Undo / redo history and the play-time transform snapshot (so STOP can
-    // revert edits made during PLAY back to their edit-time values).
+    // Active transform tool: 'move' | 'rotate' | 'scale'. Drives which
+    // selection-gizmo handles are shown and interactive.
+    this._activeTool = 'move';
+
+    // Undo / redo history.
     this._history      = [];
     this._historyIndex = -1;
     this._historyCap   = 50;
-    this._playSnapshot = null;
 
     // "Body drag" — click-and-hold anywhere on an entity to free-drag it
     // along both axes without needing the gizmo arrows.
@@ -57,8 +62,10 @@ class Engine {
     this._lastFpsTick = 0;
 
     this._initPixi();
+    this._createGrid();
     this._createSelectionGizmo();
     this._bindEditorButtons();
+    this._bindToolButtons();
     this._bindCanvasEvents();
     this._bindEditorShortcuts();
     this._spawnDemoScene();
@@ -85,10 +92,21 @@ class Engine {
     };
   }
 
-  /** Snap a value to the configured grid when snap is active. */
-  _snap (v, active) {
+  /** Snap a value to the given grid size, or the configured default. */
+  _snap (v, active, size) {
     if (!active) return v;
-    return Math.round(v / this._gridSize) * this._gridSize;
+    const step = size ?? this._gridSize;
+    if (!step) return v;
+    return Math.round(v / step) * step;
+  }
+
+  /** True when a drag should snap to the grid. Either the snap dropdown
+   *  is active, or the user is holding Shift. Returns the step to use,
+   *  or 0 if no snapping. */
+  _snapStep (event) {
+    if (this._snapSize > 0) return this._snapSize;
+    if (event?.shiftKey)    return this._gridSize;
+    return 0;
   }
 
   // ── PixiJS Setup ──────────────────────────────────────────
@@ -140,6 +158,77 @@ class Engine {
     // Save / Load scene JSON
     document.getElementById('btn-save-scene')?.addEventListener('click', () => this._saveScene());
     document.getElementById('btn-load-scene')?.addEventListener('click', () => this._loadScene());
+  }
+
+  // ── Tool / Grid Toolbar ──────────────────────────────────
+  _bindToolButtons () {
+    document.querySelectorAll('.tb-tool').forEach(btn => {
+      btn.addEventListener('click', () => this.setActiveTool(btn.dataset.tool));
+    });
+
+    const gridBtn = document.getElementById('btn-grid-toggle');
+    gridBtn?.addEventListener('click', () => this.toggleGrid());
+
+    const snapSel = document.getElementById('sel-grid-snap');
+    if (snapSel) {
+      this._snapSize = parseInt(snapSel.value, 10) || 0;
+      snapSel.addEventListener('change', () => {
+        this._snapSize = parseInt(snapSel.value, 10) || 0;
+        this._drawGrid();                          // keep grid in sync with snap
+        this.logger.info('Snap: ' + (this._snapSize ? this._snapSize + ' px' : 'off'));
+      });
+    }
+  }
+
+  setActiveTool (tool) {
+    if (!['move', 'rotate', 'scale'].includes(tool)) return;
+    this._activeTool = tool;
+    document.querySelectorAll('.tb-tool').forEach(btn => {
+      btn.classList.toggle('active', btn.dataset.tool === tool);
+    });
+    this._updateSelectionGizmo();
+    this.logger.info('Tool: ' + tool);
+  }
+
+  toggleGrid () {
+    this._gridVisible = !this._gridVisible;
+    if (this._gridGfx) this._gridGfx.visible = this._gridVisible;
+    const btn = document.getElementById('btn-grid-toggle');
+    btn?.classList.toggle('active', this._gridVisible);
+    this._drawGrid();
+    this.logger.info('Grid: ' + (this._gridVisible ? 'on' : 'off'));
+  }
+
+  _createGrid () {
+    this._gridGfx = new PIXI.Graphics();
+    this._gridGfx.zIndex = -1;
+    this._gridGfx.visible = this._gridVisible;
+    // Behind every entity — placed at the bottom of the stage.
+    this.stage.addChildAt(this._gridGfx, 0);
+    this._drawGrid();
+  }
+
+  _drawGrid () {
+    const g = this._gridGfx;
+    if (!g) return;
+    g.clear();
+    if (!this._gridVisible) return;
+    const step = this._snapSize > 0 ? this._snapSize : this._gridSize;
+    const W = this.app.renderer.width  / (window.devicePixelRatio || 1);
+    const H = this.app.renderer.height / (window.devicePixelRatio || 1);
+    // Span 2x the viewport so panning still shows grid.
+    const span = Math.max(W, H) * 2;
+    g.lineStyle(1, 0x1e2d3d, 0.9);
+    for (let x = -span; x <= span; x += step) {
+      g.moveTo(x, -span); g.lineTo(x, span);
+    }
+    for (let y = -span; y <= span; y += step) {
+      g.moveTo(-span, y); g.lineTo(span, y);
+    }
+    // Highlight the origin axes.
+    g.lineStyle(1, 0x2e4d6d, 1);
+    g.moveTo(0, -span); g.lineTo(0, span);
+    g.moveTo(-span, 0); g.lineTo(span, 0);
   }
 
   _bindCanvasEvents () {
@@ -283,6 +372,14 @@ class Engine {
         this.logger.info('Viewport reset');
         return;
       }
+
+      // Q / W / E — transform tool. G — toggle grid.
+      if (!event.ctrlKey && !event.metaKey && !event.altKey) {
+        if (event.code === 'KeyQ') { event.preventDefault(); this.setActiveTool('move');   return; }
+        if (event.code === 'KeyW') { event.preventDefault(); this.setActiveTool('rotate'); return; }
+        if (event.code === 'KeyE') { event.preventDefault(); this.setActiveTool('scale');  return; }
+        if (event.code === 'KeyG') { event.preventDefault(); this.toggleGrid();            return; }
+      }
     });
   }
 
@@ -329,14 +426,65 @@ class Engine {
     rotHandle.on('pointerup',      ()  => this._stopGizmoDrag());
     rotHandle.on('pointerupoutside', () => this._stopGizmoDrag());
 
+    // Scale handles — four small green squares at the sprite's bounding-box
+    // corners. Dragging a corner scales the sprite uniformly based on the
+    // distance from the sprite center vs. the corner's original distance.
+    const makeScaleHandle = (sx, sy, id) => {
+      const h = new PIXI.Graphics();
+      h.lineStyle(2, 0x39ff85, 1);
+      h.beginFill(0x0d1117, 1);
+      h.drawRect(-5, -5, 10, 10);
+      h.endFill();
+      h.interactive = true; h.cursor = 'nwse-resize';
+      h.hitArea = new PIXI.Rectangle(-8, -8, 16, 16);
+      h._scaleSign = { sx, sy };
+      h.on('pointerdown',    (e) => this._startGizmoDrag('scale:' + id, e));
+      h.on('pointerup',      ()  => this._stopGizmoDrag());
+      h.on('pointerupoutside', () => this._stopGizmoDrag());
+      return h;
+    };
+    const scaleTL = makeScaleHandle(-1, -1, 'tl');
+    const scaleTR = makeScaleHandle( 1, -1, 'tr');
+    const scaleBL = makeScaleHandle(-1,  1, 'bl');
+    const scaleBR = makeScaleHandle( 1,  1, 'br');
+
     this._gizmo.addChild(arrowX);
     this._gizmo.addChild(arrowY);
     this._gizmo.addChild(rotHandle);
+    this._gizmo.addChild(scaleTL);
+    this._gizmo.addChild(scaleTR);
+    this._gizmo.addChild(scaleBL);
+    this._gizmo.addChild(scaleBR);
+
+    this._gizmoParts = {
+      arrowX, arrowY, rotHandle,
+      scale: { tl: scaleTL, tr: scaleTR, bl: scaleBL, br: scaleBR },
+    };
+
     this._gizmo.visible = false;
     this._gizmo.zIndex  = 999;
     this.stage.addChild(this._gizmo);
 
     this.app.view.addEventListener('pointermove', (e) => this._onGizmoDrag(e));
+  }
+
+  /** Position the scale-handle squares at the selected sprite's corners and
+   *  toggle visibility of arrows / rotation ring / corners based on the
+   *  currently active tool. */
+  _layoutGizmoHandles (sprite) {
+    const parts = this._gizmoParts;
+    if (!parts) return;
+    const tool = this._activeTool;
+    parts.arrowX.visible    = tool === 'move';
+    parts.arrowY.visible    = tool === 'move';
+    parts.rotHandle.visible = tool === 'rotate';
+
+    const { hx, hy } = sprite.halfExtents();
+    const corners = parts.scale;
+    corners.tl.position.set(-hx, -hy); corners.tl.visible = tool === 'scale';
+    corners.tr.position.set( hx, -hy); corners.tr.visible = tool === 'scale';
+    corners.bl.position.set(-hx,  hy); corners.bl.visible = tool === 'scale';
+    corners.br.position.set( hx,  hy); corners.br.visible = tool === 'scale';
   }
 
   setSelectedEntity (id) {
@@ -353,7 +501,11 @@ class Engine {
     if (!sprite) { this._gizmo.visible = false; return; }
     this._gizmo.visible = true;
     this._gizmo.position.set(sprite.x, sprite.y);
-    this._gizmo.rotation = this._localSpace ? sprite.rotation : 0;
+    // Scale handles follow the sprite rotation so they track the real
+    // bounding box, even when "Global" space is active for arrows.
+    const handlesFollow = this._activeTool === 'scale' || this._localSpace;
+    this._gizmo.rotation = handlesFollow ? sprite.rotation : 0;
+    this._layoutGizmoHandles(sprite);
   }
 
   _startGizmoDrag (axis, event) {
@@ -370,9 +522,11 @@ class Engine {
     if (entity) {
       const sprite = entity.getComponent('sprite');
       if (sprite) {
-        this._dragEntityStart.x = sprite.x;
-        this._dragEntityStart.y = sprite.y;
+        this._dragEntityStart.x   = sprite.x;
+        this._dragEntityStart.y   = sprite.y;
         this._dragEntityStart.rot = sprite.rotation;
+        this._dragEntityStart.sx  = sprite.scaleX;
+        this._dragEntityStart.sy  = sprite.scaleY;
       }
     }
     event.stopPropagation();
@@ -391,6 +545,15 @@ class Engine {
             id:   entity.id,
             from: { rotation: this._dragEntityStart.rot },
             to:   { rotation: sprite.rotation },
+          });
+        }
+      } else if (this._dragAxis?.startsWith('scale:')) {
+        if (sprite.scaleX !== this._dragEntityStart.sx || sprite.scaleY !== this._dragEntityStart.sy) {
+          this._recordHistory({
+            kind: 'transform',
+            id:   entity.id,
+            from: { scaleX: this._dragEntityStart.sx, scaleY: this._dragEntityStart.sy },
+            to:   { scaleX: sprite.scaleX,           scaleY: sprite.scaleY },
           });
         }
       } else if (sprite.x !== this._dragEntityStart.x || sprite.y !== this._dragEntityStart.y) {
@@ -431,7 +594,37 @@ class Engine {
       if (physics?.body) Matter.Body.setAngle(physics.body, ang);
       sprite.syncGraphics();
       this._gizmo.position.set(sprite.x, sprite.y);
-      this._gizmo.rotation = this._localSpace ? sprite.rotation : 0;
+      this._layoutGizmoHandles(sprite);
+      this._gizmo.rotation = (this._activeTool === 'scale' || this._localSpace) ? sprite.rotation : 0;
+      this.events.emit('ui:inspectorDirty', entity.id);
+      return;
+    }
+
+    if (this._dragAxis?.startsWith('scale:')) {
+      const corner = this._dragAxis.slice(6);                  // tl | tr | bl | br
+      const sign = { tl: [-1,-1], tr: [ 1,-1], bl: [-1, 1], br: [ 1, 1] }[corner];
+      // Cursor in stage space, translated into sprite-local (rotation-compensated).
+      const world = this._screenToStage(currentX, currentY);
+      const dx = world.x - sprite.x;
+      const dy = world.y - sprite.y;
+      const cos = Math.cos(sprite.rotation);
+      const sin = Math.sin(sprite.rotation);
+      const localX =  dx * cos + dy * sin;                     // inverse rotation
+      const localY = -dx * sin + dy * cos;
+      // Unscaled bounding half-extent per axis.
+      const baseHx = sprite.shape === 'rect' ? sprite.w / 2 : sprite.r;
+      const baseHy = sprite.shape === 'rect' ? sprite.h / 2 : sprite.r;
+      let nx = (localX * sign[0]) / baseHx;
+      let ny = (localY * sign[1]) / baseHy;
+      // Uniform scale unless Shift is held (Shift = non-uniform).
+      if (!event.shiftKey) {
+        const uni = Math.max(Math.abs(nx), Math.abs(ny));
+        nx = ny = uni;
+      }
+      sprite.scaleX = Math.max(0.05, Math.abs(nx));
+      sprite.scaleY = Math.max(0.05, Math.abs(ny));
+      sprite.syncGraphics();
+      this._layoutGizmoHandles(sprite);
       this.events.emit('ui:inspectorDirty', entity.id);
       return;
     }
@@ -453,17 +646,18 @@ class Engine {
       else                        newY += deltaY;
     }
 
-    // Hold Shift to snap-to-grid. Only snap the axis being dragged when in
-    // global mode, otherwise a Y-axis drag on a non-grid X would yank the
-    // entity sideways.
-    if (event.shiftKey) {
+    // Snap to the configured snap size (dropdown); fall back to the default
+    // grid size when Shift is held. Only snap the dragged axis in global
+    // mode so a Y drag doesn't yank a non-grid X sideways.
+    const step = this._snapStep(event);
+    if (step > 0) {
       if (this._localSpace) {
-        newX = this._snap(newX, true);
-        newY = this._snap(newY, true);
+        newX = this._snap(newX, true, step);
+        newY = this._snap(newY, true, step);
       } else if (this._dragAxis === 'x') {
-        newX = this._snap(newX, true);
+        newX = this._snap(newX, true, step);
       } else {
-        newY = this._snap(newY, true);
+        newY = this._snap(newY, true, step);
       }
     }
 
@@ -494,7 +688,11 @@ class Engine {
 
     let newX = drag.startX + dSx / scale;
     let newY = drag.startY + dSy / scale;
-    if (event.shiftKey) { newX = this._snap(newX, true); newY = this._snap(newY, true); }
+    const step = this._snapStep(event);
+    if (step > 0) {
+      newX = this._snap(newX, true, step);
+      newY = this._snap(newY, true, step);
+    }
 
     sprite.x = newX; sprite.y = newY;
     if (physics?.body) {
@@ -529,10 +727,6 @@ class Engine {
     if (this.running && !this.paused) return;
     if (this.paused) { this.paused = false; this._updateEditorState(); return; }
 
-    // Capture a snapshot of the scene so STOP can revert any edits (position,
-    // rotation, physics) made while the simulation was running.
-    this._playSnapshot = this._captureScene();
-
     this.running  = true;
     this.paused   = false;
     this.elapsed  = 0;
@@ -560,16 +754,10 @@ class Engine {
     cancelAnimationFrame(this._rafId);
     this.scene.reset();
     this.elapsed = 0;
-    // Revert every entity to the state it held at the moment Play was
-    // pressed — position, rotation, alpha, color, and physics config.
-    if (this._playSnapshot) {
-      this._restoreScene(this._playSnapshot);
-      this._playSnapshot = null;
-    }
     this._updateEditorState();
     this.events.emit('engine:stop');
     this.audio.stopAll();
-    this.logger.info('Scene stopped — reverted to edit-time state');
+    this.logger.info('Scene stopped');
   }
 
   // ── Main Loop ──────────────────────────────────────────────
@@ -695,6 +883,8 @@ class Engine {
       r:        spr.r,
       w:        spr.w,
       h:        spr.h,
+      scaleX:   spr.scaleX,
+      scaleY:   spr.scaleY,
       alpha:    spr.alpha,
       physics: ph ? {
         restitution: ph.restitution,
@@ -736,6 +926,8 @@ class Engine {
     if (t.x !== undefined) sprite.x = t.x;
     if (t.y !== undefined) sprite.y = t.y;
     if (t.rotation !== undefined) sprite.rotation = t.rotation;
+    if (t.scaleX !== undefined) sprite.scaleX = t.scaleX;
+    if (t.scaleY !== undefined) sprite.scaleY = t.scaleY;
     if (physics?.body) {
       if (t.x !== undefined || t.y !== undefined) {
         Matter.Body.setPosition(physics.body, { x: sprite.x, y: sprite.y });
@@ -759,56 +951,6 @@ class Engine {
     const entry = this._history[++this._historyIndex];
     if (entry.kind === 'transform') this._applyTransform(entry.id, entry.to);
     this.logger.info('Redo: ' + entry.kind);
-  }
-
-  // ── Play-time snapshot ────────────────────────────────────
-  _captureScene () {
-    // Minimal snapshot sufficient to rebuild the scene as it looked when
-    // Play was pressed: sprite transform + physics config. Scripts are
-    // preserved in-place (they don't need to rebuild on stop).
-    return this.scene.getAllEntities().map(e => ({
-      id:   e.id,
-      name: e.name,
-      tags: [...e.tags],
-      sprite:  e.getComponent('sprite')?.toJSON() ?? null,
-      physics: e.getComponent('physics')?.toJSON() ?? null,
-    }));
-  }
-
-  _restoreScene (snap) {
-    for (const rec of snap) {
-      const entity = this.scene.getEntity(rec.id);
-      if (!entity) continue;
-      const sprite  = entity.getComponent('sprite');
-      const physics = entity.getComponent('physics');
-      if (sprite && rec.sprite) {
-        sprite.x        = rec.sprite.x;
-        sprite.y        = rec.sprite.y;
-        sprite.rotation = rec.sprite.rotation;
-        if (rec.sprite.alpha !== undefined) sprite.setAlpha(rec.sprite.alpha);
-        if (rec.sprite.color !== undefined) sprite.setColor(rec.sprite.color);
-        sprite.syncGraphics();
-      }
-      if (physics && rec.physics) {
-        physics.restitution = rec.physics.restitution;
-        physics.friction    = rec.physics.friction;
-        physics.frictionAir = rec.physics.frictionAir;
-        physics.density     = rec.physics.density;
-        physics.gravity     = rec.physics.gravity;
-        physics.fixed       = !!rec.physics.fixed;
-        if (physics.body) {
-          physics.body.restitution = physics.restitution;
-          physics.body.friction    = physics.friction;
-          physics.body.frictionAir = physics.frictionAir;
-          Matter.Body.setStatic(physics.body, physics.fixed);
-          Matter.Body.setPosition(physics.body, { x: sprite.x, y: sprite.y });
-          Matter.Body.setAngle(physics.body, sprite.rotation);
-          Matter.Body.setVelocity(physics.body, { x: 0, y: 0 });
-          Matter.Body.setAngularVelocity(physics.body, 0);
-        }
-      }
-    }
-    this.events.emit('ui:inspectorDirty', this._selectedEntityId);
   }
 
   _toggleAudio () {
@@ -848,10 +990,12 @@ class Engine {
               x:     cfg.transform?.x     ?? 100,
               y:     cfg.transform?.y     ?? 100,
               shape: cfg.transform?.shape ?? 'circle',
-              r:     cfg.transform?.r     ?? 16,
-              w:     cfg.transform?.w     ?? 32,
-              h:     cfg.transform?.h     ?? 32,
-              alpha: cfg.transform?.alpha ?? 1,
+              r:      cfg.transform?.r      ?? 16,
+              w:      cfg.transform?.w      ?? 32,
+              h:      cfg.transform?.h      ?? 32,
+              scaleX: cfg.transform?.scaleX ?? 1,
+              scaleY: cfg.transform?.scaleY ?? 1,
+              alpha:  cfg.transform?.alpha  ?? 1,
               physics: cfg.physics || {},
             });
           }
