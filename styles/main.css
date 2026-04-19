@@ -198,17 +198,7 @@ html, body {
 }
 .hm-icon  { width: 18px; text-align: center; }
 .hm-label { flex: 1; }
-.hm-chev  { font-size: 9px; color: var(--text-muted); transition: transform 0.15s; }
-.hm-expander[aria-expanded="true"] .hm-chev { transform: rotate(90deg); color: var(--accent); }
 .hm-state { font-size: 9px; color: var(--text-muted); }
-
-.hm-sub {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  padding: 2px 0 2px 22px;
-}
-.hm-sub-item { font-size: 10px; }
 
 .hm-sep {
   height: 1px;
