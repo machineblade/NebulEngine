@@ -104,16 +104,22 @@ export class PhysicsComponent {
       case 'rsquare':
         body = Matter.Bodies.rectangle(x, y, sprite.w * sx, sprite.h * sy, opts);
         break;
-      case 'diamond':
-        // Bake the 45° diamond tilt into the body's initial angle instead of
-        // rotating afterwards — calling Matter.Body.rotate on top of an
-        // already-angled body compounds PI/4 on every rebuildBody (each time
-        // the user rescales a diamond post-play, it would drift another 45°).
-        body = Matter.Bodies.rectangle(
-          x, y, sprite.r * 2 * sx, sprite.r * 2 * sy,
-          Object.assign({}, opts, { angle: (opts.angle || 0) + Math.PI / 4 }),
-        );
+      case 'diamond': {
+        // Build the diamond directly from its 4 vertices in local space so the
+        // body's identity angle matches the sprite's identity angle. Any
+        // approach that bakes a PI/4 offset into body.angle and then lets
+        // update() sync `sprite.rotation = body.angle` ends up re-applying
+        // that offset on every rebuildBody, drifting 45° per rescale.
+        const rx = sprite.r * sx;
+        const ry = sprite.r * sy;
+        body = Matter.Bodies.fromVertices(x, y, [[
+          { x:  0,  y: -ry },
+          { x:  rx, y:  0  },
+          { x:  0,  y:  ry },
+          { x: -rx, y:  0  },
+        ]], opts);
         break;
+      }
       case 'star':
       case 'rstar':
         // Polygons can't go elliptical; use the larger scale so the collision
