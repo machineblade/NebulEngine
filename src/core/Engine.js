@@ -573,7 +573,13 @@ class Engine {
     this._gizmo.zIndex  = 999;
     this.stage.addChild(this._gizmo);
 
-    this.app.view.addEventListener('pointermove', (e) => this._onGizmoDrag(e));
+    // Listen on window (not just the canvas) so the drag keeps following
+    // the cursor even when the pointer leaves the viewport (e.g. hovers
+    // over the inspector or sidebars). Without this the drag gets "stuck"
+    // the moment the cursor exits the canvas, which looks like the
+    // position only updates once.
+    window.addEventListener('pointermove', (e) => this._onGizmoDrag(e));
+    window.addEventListener('pointerup',   () => this._stopGizmoDrag());
   }
 
   /** Position the scale-handle squares at the selected sprite's corners and
@@ -819,7 +825,15 @@ class Engine {
     }
 
     sprite.x = newX; sprite.y = newY;
-    if (physics?.body) Matter.Body.setPosition(physics.body, { x: newX, y: newY });
+    if (physics?.body) {
+      Matter.Body.setPosition(physics.body, { x: newX, y: newY });
+      // Pin the body to the cursor while dragging: during PLAY, gravity
+      // and existing velocity would otherwise push the body between
+      // pointermove ticks so the object appears to "only move once" per
+      // drag gesture.
+      Matter.Body.setVelocity(physics.body, { x: 0, y: 0 });
+      Matter.Body.setAngularVelocity(physics.body, 0);
+    }
     sprite.syncGraphics();
     this._gizmo.position.set(newX, newY);
     this.events.emit('ui:inspectorDirty', entity.id);
