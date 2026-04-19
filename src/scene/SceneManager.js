@@ -24,6 +24,41 @@ export class SceneManager {
     this._world.gravity.x = 0;
     this._world.gravity.y = 0;
     this._createBounds(w, h);
+    this._registerCollisionEvents();
+  }
+
+  /**
+   * Bridge Matter collisionStart/End events into each entity's script hook.
+   *   onCollide(selfEntity, otherEntity, pair)
+   *   onSeparate(selfEntity, otherEntity, pair)
+   * Ignores pairs where either body isn't linked to an entity (walls).
+   */
+  _registerCollisionEvents () {
+    if (!this._engine || typeof Matter === 'undefined') return;
+    const dispatch = (hookName) => (event) => {
+      for (const pair of event.pairs) {
+        const a = pair.bodyA?.plugin?.entity ?? null;
+        const b = pair.bodyB?.plugin?.entity ?? null;
+        if (!a || !b) continue;
+        this._invokeScriptHook(a, hookName, b, pair);
+        this._invokeScriptHook(b, hookName, a, pair);
+      }
+    };
+    Matter.Events.on(this._engine, 'collisionStart', dispatch('onCollide'));
+    Matter.Events.on(this._engine, 'collisionEnd',   dispatch('onSeparate'));
+  }
+
+  _invokeScriptHook (entity, hookName, other, pair) {
+    const sc = entity.getComponent?.('script');
+    const fn = sc?._script?.[hookName];
+    if (typeof fn !== 'function') return;
+    try {
+      fn.call(sc._script, entity, other, pair);
+    } catch (err) {
+      const msg = `[${entity.name}] script.${hookName}: ${err.message}`;
+      if (sc?._logger) sc._logger.error(msg);
+      else             console.error(msg, err);
+    }
   }
 
   _createBounds (w, h) {

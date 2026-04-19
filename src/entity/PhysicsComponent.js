@@ -61,6 +61,9 @@ export class PhysicsComponent {
         this.body = Matter.Bodies.circle(x, y, sprite.r, opts);
     }
 
+    // Back-reference so collision-event listeners can look the entity up.
+    this.body.plugin = Object.assign(this.body.plugin || {}, { entity: this._entity });
+
     Matter.World.add(world, this.body);
     Matter.Body.setVelocity(this.body, { x: this.vx, y: this.vy });
   }
