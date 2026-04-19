@@ -153,22 +153,9 @@ export class UIBridge {
 
   // ── Workspace (Script Editor) ──────────────────────────────
   _setupWorkspace () {
-    this._scriptListEl   = document.getElementById('script-list');
-    this._scriptEditorEl = document.getElementById('script-editor');
-    this._workspaceSelEl = document.getElementById('workspace-selected-entity');
+    this._scriptListEl    = document.getElementById('script-list');
+    this._workspaceSelEl  = document.getElementById('workspace-selected-entity');
     this._workspaceStatus = document.getElementById('workspace-status');
-
-    this._scriptTabsBar = document.getElementById('script-tabs-bar');
-    this._scriptTabsContainer = document.getElementById('script-tabs-container');
-    this._openScriptTabs = new Map(); // name -> {tab, textarea}
-    this._activeTab = 'Default Script';
-
-    // Auto-save script on input
-    this._scriptEditorEl?.addEventListener('input', () => {
-      if (this._activeTab && this._activeTab !== 'Default Script') {
-        this._scripts.set(this._activeTab, this._scriptEditorEl.value);
-      }
-    });
 
     // Make inspector droppable for script assignment
     const inspector = document.getElementById('panel-inspector');
@@ -286,7 +273,6 @@ export class UIBridge {
     this._scripts.set('Default Script', template);
     this._activeScript = 'Default Script';
     this._updateScriptList();
-    this._scriptEditorEl.value  = template;
   }
 
   _updateWorkspaceSelection (id) {
@@ -294,16 +280,6 @@ export class UIBridge {
       const entity = this.engine.scene.getEntity(id);
       this._workspaceSelEl.textContent = entity ? `${entity.name} (#${entity.id})` : 'None';
     }
-  }
-
-  _saveScript () {
-    // Auto-save is now handled by _setupWorkspace input listener
-  }
-
-  _loadSelectedScript () {
-    if (!this._scriptEditorEl) return;
-    const name = this._activeScript;
-    this._scriptEditorEl.value  = this._scripts.get(name) || '';
   }
 
   _updateScriptList () {
@@ -413,7 +389,6 @@ export class UIBridge {
 
         this._activeScript = name;
         this._updateScriptList();
-        this._loadSelectedScript();
 
         if (isDouble) openScriptEditor();
       });
@@ -479,10 +454,6 @@ export class UIBridge {
     ta.addEventListener('input', () => {
       const curName = win.dataset.scriptName;
       this._scripts.set(curName, ta.value);
-      // Keep the bottom-panel script editor in sync if the same script is active.
-      if (this._activeScript === curName && this._scriptEditorEl) {
-        this._scriptEditorEl.value = ta.value;
-      }
     });
 
     // Focus-to-front

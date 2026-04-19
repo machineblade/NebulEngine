@@ -242,63 +242,6 @@ aside {
 .script-name.editable { background: var(--bg-void); border: 1px solid var(--accent); padding: 1px 3px; }
 .script-item input.script-name.editable { outline: none; font-family: var(--font-mono); font-size: 11px; color: var(--text-primary); width: 60px; }
 
-/* ── Script Tabs ──────────────────────────── */
-.script-tabs-bar {
-  display: flex;
-  gap: 2px;
-  background: var(--bg-panel);
-  border-bottom: 1px solid var(--border);
-  padding: 0 8px;
-  overflow-x: auto;
-  align-items: center;
-  flex-shrink: 0;
-}
-
-.script-tab {
-  padding: 6px 12px;
-  background: var(--bg-panel2);
-  border: 1px solid var(--border);
-  border-bottom: none;
-  border-radius: 3px 3px 0 0;
-  cursor: pointer;
-  font-size: 11px;
-  white-space: nowrap;
-  transition: background 0.15s, border-color 0.15s;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.script-tab:hover { background: var(--bg-hover); }
-.script-tab.active { background: var(--bg-void); border-color: var(--accent); color: var(--accent); }
-.script-tab-close {
-  margin-left: 4px;
-  cursor: pointer;
-  font-size: 10px;
-  opacity: 0.7;
-  transition: opacity 0.15s;
-}
-.script-tab-close:hover { opacity: 1; }
-
-.script-tabs-container {
-  flex: 1;
-  overflow: hidden;
-  position: relative;
-}
-
-.script-tab-content {
-  position: absolute;
-  width: 100%;
-  height: 100%;
-  opacity: 0;
-  pointer-events: none;
-  transition: opacity 0.1s;
-}
-
-.script-tab-content.active {
-  opacity: 1;
-  pointer-events: auto;
-}
 #viewport-area {
   flex: 1;
   background: var(--bg-void);
@@ -418,19 +361,6 @@ aside {
   font-family: var(--font-mono);
   font-size: 11px;
 }
-
-#script-editor {
-  flex: 1;
-  resize: none;
-  font-family: var(--font-mono);
-  font-size: 11px;
-  background: var(--bg-void);
-  color: var(--text-primary);
-  border: 1px solid var(--border);
-  padding: 6px 8px;
-  line-height: 1.5;
-}
-#script-editor:focus { outline: none; border-color: var(--accent); }
 
 #workspace-status {
   color: var(--text-muted);
