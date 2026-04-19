@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>NebulEngine — Game Engine</title>
+  <link rel="stylesheet" href="styles/main.css" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Orbitron:wght@400;700;900&display=swap" rel="stylesheet" />
+
+  <!-- PixiJS CDN -->
+  <script src="https://cdn.jsdelivr.net/npm/pixi.js@7/dist/pixi.min.js"></script>
+  <!-- Matter.js CDN -->
+  <script src="https://cdn.jsdelivr.net/npm/matter-js@0.19.0/build/matter.min.js"></script>
+  <!-- HowlerJS CDN -->
+  <script src="https://cdn.jsdelivr.net/npm/howler@2.2.4/dist/howler.min.js"></script>
+</head>
+<body>
+  <div id="engine-shell">
+
+    <!-- Header bar -->
+    <header id="engine-header">
+      <div id="logo">
+        <span class="logo-nebul">NEBUL</span><span class="logo-engine">ENGINE</span>
+        <span id="engine-version">v1.0.0</span>
+      </div>
+      <nav id="engine-toolbar">
+        <button class="tb-btn" id="btn-play"  title="Play Scene">▶ PLAY</button>
+        <button class="tb-btn" id="btn-pause" title="Pause" disabled>⏸ PAUSE</button>
+        <button class="tb-btn" id="btn-stop"  title="Stop"  disabled>⏹ STOP</button>
+        <div class="tb-sep"></div>
+        <button class="tb-btn" id="btn-spawn" title="Spawn Entity">＋ SPAWN</button>
+        <button class="tb-btn" id="btn-clear" title="Clear Scene">🗑 CLEAR</button>
+        <div class="tb-sep"></div>
+        <button class="tb-btn" id="btn-save-scene" title="Save scene to JSON">💾 SAVE</button>
+        <button class="tb-btn" id="btn-load-scene" title="Load scene from JSON">📂 LOAD</button>
+        <div class="tb-sep"></div>
+        <button class="tb-btn" id="btn-mute" title="Mute Audio">🔊 AUDIO</button>
+      </nav>
+      <div id="fps-counter">FPS: <span id="fps-value">0</span></div>
+    </header>
+
+    <!-- Main workspace -->
+    <div id="workspace">
+
+      <!-- Left: Scene Hierarchy -->
+      <aside id="panel-hierarchy">
+        <div class="panel-title">SCENE HIERARCHY
+          <div id="hierarchy-resizer" title="Drag to resize"></div>
+        </div>
+        <ul id="hierarchy-list"></ul>
+      </aside>
+
+      <!-- Center: Viewport -->
+      <main id="viewport-area">
+        <div id="viewport-label">SCENE VIEWPORT</div>
+        <div id="canvas-wrapper">
+          <canvas id="game-canvas"></canvas>
+        </div>
+        <div id="viewport-status">
+          <span id="status-state">IDLE</span>
+          <span id="status-entities">Entities: 0</span>
+          <span id="status-time">T: 0.00s</span>
+        </div>
+      </main>
+
+      <!-- Right: Inspector -->
+      <aside id="panel-inspector">
+        <div class="panel-title">INSPECTOR</div>
+        <div id="inspector-content">
+          <div class="inspector-empty">Select an entity to inspect</div>
+        </div>
+      </aside>
+    </div>
+
+    <!-- Bottom panel -->
+    <div id="bottom-panel">
+      <div id="bottom-panel-header">
+        <div class="panel-title">WORKSPACE</div>
+      </div>
+      <div id="bottom-panel-body">
+
+        <!-- Script Editor -->
+        <section id="panel-workspace" class="bottom-pane active">
+          <div id="workspace-meta">
+            <div id="workspace-selected">Selected: <span id="workspace-selected-entity">None</span></div>
+            <div id="workspace-mode">Space: <span id="workspace-space-mode">Global</span> (Alt+L)</div>
+          </div>
+          <div id="workspace-controls">
+            <div id="script-list" class="script-list"></div>
+          </div>
+          <div id="script-tabs-bar" class="script-tabs-bar"></div>
+          <div id="script-tabs-container" class="script-tabs-container">
+            <textarea id="script-editor" class="script-tab-content active" spellcheck="false"></textarea>
+          </div>
+          <div id="workspace-status">Drag a script onto the inspector to assign it.</div>
+        </section>
+
+        <!-- Console -->
+        <section id="panel-console" class="bottom-pane active">
+          <div id="console-toolbar">
+            <button class="console-filter-btn active" data-filter="all">ALL</button>
+            <button class="console-filter-btn" data-filter="info">INFO</button>
+            <button class="console-filter-btn" data-filter="warn">WARN</button>
+            <button class="console-filter-btn" data-filter="error">ERROR</button>
+            <button class="console-filter-btn" data-filter="success">OK</button>
+            <button id="btn-console-clear" class="console-clear-btn">CLEAR</button>
+          </div>
+          <div id="console-output"></div>
+        </section>
+
+      </div>
+    </div>
+
+  </div>
+
+  <!-- Engine Source -->
+  <script type="module" src="src/core/Engine.js"></script>
+</body>
+</html>
