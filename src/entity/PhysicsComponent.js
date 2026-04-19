@@ -19,8 +19,25 @@ export class PhysicsComponent {
     this.friction    = cfg.friction    !== undefined ? cfg.friction    : 0.1;
     this.frictionAir = cfg.frictionAir !== undefined ? cfg.frictionAir : 0.02;
     this.density     = cfg.density     !== undefined ? cfg.density     : 0.001;
-    this.gravity     = cfg.gravity     || 0;
+
+    /**
+     * Per-entity gravity.
+     *   enabled — false ignores BOTH world gravity and `force` (body.gravityScale = 0)
+     *   force   — extra downward force applied per step (px/s², stacks on top of world)
+     *
+     * Legacy scenes wrote `cfg.gravity` as a plain number; we accept that here too.
+     */
+    this.gravity     = normaliseGravity(cfg.gravity);
+
     this.fixed       = cfg.fixed       || false;
+
+    /**
+     * Anchored = stronger than `fixed`. It makes the body static, zeroes its
+     * velocity/angular velocity every frame, and causes applyImpulse/applyForce
+     * to become no-ops. Use this when you want a platform, wall, or prop that
+     * never moves regardless of collisions, scripts, or gravity.
+     */
+    this.anchored   = cfg.anchored    || false;
 
     /** Set false to pause physics for this body without removing the component. */
     this.enabled = true;
@@ -41,7 +58,7 @@ export class PhysicsComponent {
       friction:    this.friction,
       frictionAir: this.frictionAir,
       density:     this.density,
-      isStatic:    this.fixed,
+      isStatic:    this.fixed || this.anchored,
       angle:       sprite.rotation,
       label:       'entity-body',
     };
@@ -64,6 +81,11 @@ export class PhysicsComponent {
     // Back-reference so collision-event listeners can look the entity up.
     this.body.plugin = Object.assign(this.body.plugin || {}, { entity: this._entity });
 
+    // Honour per-entity gravity.enabled from the start so a freshly-loaded
+    // entity with gravity disabled doesn't spend one tick being yanked by
+    // world gravity before update() corrects it.
+    this.body.gravityScale = this.gravity && this.gravity.enabled !== false ? 1 : 0;
+
     Matter.World.add(world, this.body);
     Matter.Body.setVelocity(this.body, { x: this.vx, y: this.vy });
   }
@@ -74,15 +96,49 @@ export class PhysicsComponent {
     const sprite = this._entity.getComponent('sprite');
     if (!sprite) return;
 
+    // Coerce legacy numeric gravity (set via `ph.gravity = 5` by older scripts)
+    // back into the object form so the rest of this method is uniform.
+    if (typeof this.gravity !== 'object' || this.gravity === null) {
+      this.gravity = normaliseGravity(this.gravity);
+    }
+
+    // Sync anchored ↔ isStatic (and zero velocity when freshly anchored).
+    if (this.body.isStatic !== !!this.anchored) {
+      Matter.Body.setStatic(this.body, !!this.anchored);
+      if (this.anchored) {
+        Matter.Body.setVelocity(this.body, { x: 0, y: 0 });
+        Matter.Body.setAngularVelocity(this.body, 0);
+      }
+    }
+
+    // Sync per-entity gravity.enabled ↔ body.gravityScale so toggling it also
+    // makes the body ignore world gravity.
+    const desiredScale = this.gravity.enabled !== false ? 1 : 0;
+    if (this.body.gravityScale !== desiredScale) {
+      this.body.gravityScale = desiredScale;
+    }
+
     // Physics is authoritative — write body state back to sprite
     sprite.x        = this.body.position.x;
     sprite.y        = this.body.position.y;
     sprite.rotation = this.body.angle;
 
-    if (this.gravity !== 0 && !this.fixed) {
+    // Anchored bodies get their motion quashed every frame so scripts that
+    // accidentally mutated velocity can't drift them off-position.
+    if (this.anchored) {
+      Matter.Body.setVelocity(this.body, { x: 0, y: 0 });
+      Matter.Body.setAngularVelocity(this.body, 0);
+      return;
+    }
+
+    if (
+      this.gravity.enabled !== false &&
+      this.gravity.force   !== 0    &&
+      !this.fixed
+    ) {
       Matter.Body.applyForce(this.body, this.body.position, {
         x: 0,
-        y: this.gravity * this.body.mass * dt * 0.001,
+        y: this.gravity.force * this.body.mass * dt * 0.001,
       });
     }
   }
@@ -90,7 +146,7 @@ export class PhysicsComponent {
   // ── Motion helpers ─────────────────────────────────────────
 
   applyImpulse (fx, fy) {
-    if (this.fixed || !this.body) return;
+    if (this.fixed || this.anchored || !this.body) return;
     Matter.Body.setVelocity(this.body, {
       x: this.body.velocity.x + fx,
       y: this.body.velocity.y + fy,
@@ -98,7 +154,7 @@ export class PhysicsComponent {
   }
 
   applyForce (fx, fy, dt) {
-    if (this.fixed || !this.body) return;
+    if (this.fixed || this.anchored || !this.body) return;
     Matter.Body.applyForce(this.body, this.body.position, {
       x: fx * dt,
       y: fy * dt,
@@ -152,8 +208,31 @@ export class PhysicsComponent {
       friction:    this.friction,
       frictionAir: this.frictionAir,
       density:     this.density,
-      gravity:     this.gravity,
+      gravity:     { enabled: this.gravity.enabled !== false, force: this.gravity.force || 0 },
       fixed:       this.fixed,
+      anchored:    this.anchored,
     };
   }
+}
+
+/**
+ * Coerce `cfg.gravity` into the canonical `{enabled, force}` form.
+ * Accepts:
+ *   undefined / null            → { enabled: true,  force: 0 }
+ *   number (legacy save format) → { enabled: true,  force: n }
+ *   { enabled?, force? } object → normalised with sensible defaults
+ */
+function normaliseGravity (raw) {
+  if (raw === null || raw === undefined) {
+    return { enabled: true, force: 0 };
+  }
+  if (typeof raw === 'number') {
+    return { enabled: true, force: Number.isFinite(raw) ? raw : 0 };
+  }
+  if (typeof raw === 'object') {
+    const force   = Number.isFinite(raw.force) ? raw.force : 0;
+    const enabled = raw.enabled !== false;
+    return { enabled, force };
+  }
+  return { enabled: true, force: 0 };
 }

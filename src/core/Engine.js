@@ -965,8 +965,11 @@ class Engine {
         friction:    ph.friction,
         frictionAir: ph.frictionAir,
         density:     ph.density,
-        gravity:     ph.gravity,
+        gravity:     ph.gravity && typeof ph.gravity === 'object'
+          ? { enabled: ph.gravity.enabled !== false, force: ph.gravity.force || 0 }
+          : { enabled: true, force: typeof ph.gravity === 'number' ? ph.gravity : 0 },
         fixed:       ph.fixed,
+        anchored:    ph.anchored,
         vx:          ph.body?.velocity?.x ?? 0,
         vy:          ph.body?.velocity?.y ?? 0,
       } : {},
