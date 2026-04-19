@@ -105,11 +105,23 @@ export class SceneManager {
       label: 'scene-floor',
     };
 
+    // The visual grid (Engine._drawGrid) spans 2×max(viewport) in each
+    // direction from the origin, so the walls bound the full grid, not
+    // just the initial canvas view. Top/left/right pinball, bottom is
+    // ground.
+    const span = Math.max(w, h) * 2;
+    const areaW = span * 2;
+    const areaH = span * 2;
+
     this._walls = [
-      Matter.Bodies.rectangle(w / 2, -thickness / 2, w, thickness, wallOptions),
-      Matter.Bodies.rectangle(w / 2, h + thickness / 2, w, thickness, floorOptions),
-      Matter.Bodies.rectangle(-thickness / 2, h / 2, thickness, h, wallOptions),
-      Matter.Bodies.rectangle(w + thickness / 2, h / 2, thickness, h, wallOptions),
+      // ceiling — far top
+      Matter.Bodies.rectangle(0, -span - thickness / 2, areaW, thickness, wallOptions),
+      // floor — far bottom
+      Matter.Bodies.rectangle(0,  span + thickness / 2, areaW, thickness, floorOptions),
+      // left wall — far left
+      Matter.Bodies.rectangle(-span - thickness / 2, 0, thickness, areaH, wallOptions),
+      // right wall — far right
+      Matter.Bodies.rectangle( span + thickness / 2, 0, thickness, areaH, wallOptions),
     ];
 
     Matter.World.add(this._world, this._walls);
