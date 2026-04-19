@@ -330,8 +330,15 @@ export class UIBridge {
       // Helper to open the script in a draggable in-page window.
       const openScriptEditor = () => this._openFloatingScriptEditor(name);
 
-      // Double-click *anywhere* on the card opens the floating script window.
+      // Double-click opens the floating script window. We do this via manual
+      // click-timestamp detection on the `click` event rather than the native
+      // `dblclick` event, because Firefox swallows `dblclick` on elements with
+      // `draggable="true"` (the script card needs to be draggable so it can be
+      // dropped onto an entity in the Inspector). Tracking the timestamp on
+      // the UIBridge instance keeps it alive across `_updateScriptList()`
+      // rebuilds, which destroy and recreate these DOM nodes on every click.
       item.addEventListener('dblclick', (e) => {
+        // Still handle the native event in Chromium for immediate feedback.
         e.stopPropagation();
         openScriptEditor();
       });
@@ -395,9 +402,20 @@ export class UIBridge {
         item.classList.remove('dragging');
       });
       item.addEventListener('click', () => {
+        const now = Date.now();
+        const DOUBLE_CLICK_MS = 400;
+        const isDouble =
+          this._lastScriptClickName === name &&
+          (now - (this._lastScriptClickTime || 0)) < DOUBLE_CLICK_MS;
+        // Reset on match so a triple-click doesn't immediately re-open.
+        this._lastScriptClickName = isDouble ? null : name;
+        this._lastScriptClickTime = isDouble ? 0 : now;
+
         this._activeScript = name;
         this._updateScriptList();
         this._loadSelectedScript();
+
+        if (isDouble) openScriptEditor();
       });
 
       this._scriptListEl.appendChild(item);
