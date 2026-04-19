@@ -208,6 +208,28 @@ class Engine {
       });
     }
 
+    // World gravity — 0 = zero-G, 1 ≈ Earth, negative = up. Persisted.
+    const gravInp = document.getElementById('inp-gravity');
+    if (gravInp) {
+      const saved = (() => {
+        try { return parseFloat(localStorage.getItem('nebulengine.gravity')); }
+        catch (_) { return NaN; }
+      })();
+      const initial = Number.isFinite(saved) ? saved : 0;
+      gravInp.value = String(initial);
+      this.scene.setGravityY(initial);
+
+      const apply = () => {
+        const v = parseFloat(gravInp.value);
+        const g = Number.isFinite(v) ? v : 0;
+        this.scene.setGravityY(g);
+        try { localStorage.setItem('nebulengine.gravity', String(g)); } catch (_) {}
+        this.logger.info('World gravity: ' + g);
+      };
+      gravInp.addEventListener('change', apply);
+      gravInp.addEventListener('input',  apply);
+    }
+
     // Theme selector — Default / Dark / Light. Persisted to localStorage and
     // applied to the document element; Pixi canvas bg + grid colors resync.
     const themeSel = document.getElementById('sel-theme');

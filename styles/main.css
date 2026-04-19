@@ -646,6 +646,9 @@ aside {
 }
 .tb-select:hover  { border-color: var(--accent); color: var(--accent); }
 .tb-select:focus  { outline: none; border-color: var(--accent); color: var(--accent); }
+.tb-num { width: 52px; text-align: right; }
+.tb-num::-webkit-inner-spin-button,
+.tb-num::-webkit-outer-spin-button { opacity: 1; }
 
 /* ── Floating Script Editor Windows ───────────────────────── */
 #script-windows-layer {
