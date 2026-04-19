@@ -944,6 +944,9 @@ export class UIBridge {
     if (scriptComp?.setScript) {
       scriptComp._logger = this.logger;    // ensure errors surface in engine console
       scriptComp.setScript(scriptObj);
+      // Mirror what Engine._createEntity does so scripts assigned via the
+      // workspace panel can still read/write `this.world.settings.gravity.*`.
+      if (this.engine._scriptWorld) scriptObj.world = this.engine._scriptWorld;
       this.logger.info(`Assigned '${this._activeScript}' → ${entity.name}`);
     } else {
       this.logger.warn('Entity has no script component');

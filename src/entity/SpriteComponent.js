@@ -86,16 +86,24 @@ export class SpriteComponent {
       g.drawPolygon(verts);
       return;
     }
-    // Rounded star: draw with quadraticCurveTo through every other vertex
-    // for a softer silhouette. Pixi's quadraticCurveTo takes a single
-    // control point, so we alternate vertex → control → vertex.
-    g.moveTo(verts[0], verts[1]);
-    for (let i = 0; i < pts * 2; i++) {
+    // Rounded star: draw with quadraticCurveTo using each vertex as the
+    // control point and the midpoint between consecutive vertices as the
+    // on-curve endpoint. Start at the midpoint between the last and first
+    // vertices so the first segment is a proper curve (starting at a vertex
+    // would make the pen position coincide with the first control point and
+    // degenerate that segment into a straight line).
+    const n    = pts * 2;
+    const last = n - 1;
+    const startX = (verts[last * 2]     + verts[0]) / 2;
+    const startY = (verts[last * 2 + 1] + verts[1]) / 2;
+    g.moveTo(startX, startY);
+    for (let i = 0; i < n; i++) {
       const cx = verts[i * 2];
       const cy = verts[i * 2 + 1];
-      const nx = verts[((i + 1) % (pts * 2)) * 2];
-      const ny = verts[((i + 1) % (pts * 2)) * 2 + 1];
-      g.quadraticCurveTo(cx, cy, (cx + nx) / 2, (cy + ny) / 2);
+      const ni = (i + 1) % n;
+      const mx = (cx + verts[ni * 2])     / 2;
+      const my = (cy + verts[ni * 2 + 1]) / 2;
+      g.quadraticCurveTo(cx, cy, mx, my);
     }
     g.closePath();
   }
