@@ -883,6 +883,8 @@ class Engine {
       r:        spr.r,
       w:        spr.w,
       h:        spr.h,
+      scaleX:   spr.scaleX,
+      scaleY:   spr.scaleY,
       alpha:    spr.alpha,
       physics: ph ? {
         restitution: ph.restitution,
@@ -988,10 +990,12 @@ class Engine {
               x:     cfg.transform?.x     ?? 100,
               y:     cfg.transform?.y     ?? 100,
               shape: cfg.transform?.shape ?? 'circle',
-              r:     cfg.transform?.r     ?? 16,
-              w:     cfg.transform?.w     ?? 32,
-              h:     cfg.transform?.h     ?? 32,
-              alpha: cfg.transform?.alpha ?? 1,
+              r:      cfg.transform?.r      ?? 16,
+              w:      cfg.transform?.w      ?? 32,
+              h:      cfg.transform?.h      ?? 32,
+              scaleX: cfg.transform?.scaleX ?? 1,
+              scaleY: cfg.transform?.scaleY ?? 1,
+              alpha:  cfg.transform?.alpha  ?? 1,
               physics: cfg.physics || {},
             });
           }
