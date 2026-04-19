@@ -17,7 +17,11 @@ export class PhysicsComponent {
     this.vy          = cfg.vy          !== undefined ? cfg.vy          : 0;
     this.restitution = cfg.restitution !== undefined ? cfg.restitution : 0.8;
     this.friction    = cfg.friction    !== undefined ? cfg.friction    : 0.1;
-    this.frictionAir = cfg.frictionAir !== undefined ? cfg.frictionAir : 0.02;
+    // Matter's default air drag is 0.01; the engine previously overrode it to
+    // 0.02 which caused vertical velocity to hit terminal almost instantly when
+    // gravity was applied (so things "fell at constant speed"). 0.001 lets
+    // bodies accelerate naturally under gravity while still damping wild spins.
+    this.frictionAir = cfg.frictionAir !== undefined ? cfg.frictionAir : 0.001;
     this.density     = cfg.density     !== undefined ? cfg.density     : 0.001;
 
     /**
@@ -102,13 +106,15 @@ export class PhysicsComponent {
       this.gravity = normaliseGravity(this.gravity);
     }
 
-    // Sync anchored ↔ isStatic (and zero velocity when freshly anchored).
-    if (this.body.isStatic !== !!this.anchored) {
-      Matter.Body.setStatic(this.body, !!this.anchored);
-      if (this.anchored) {
-        Matter.Body.setVelocity(this.body, { x: 0, y: 0 });
-        Matter.Body.setAngularVelocity(this.body, 0);
-      }
+    // Sync (anchored || fixed) ↔ isStatic. `fixed` bodies must stay static on
+    // their own, and `anchored` also zeroes any accumulated motion.
+    const shouldBeStatic = !!this.anchored || !!this.fixed;
+    if (this.body.isStatic !== shouldBeStatic) {
+      Matter.Body.setStatic(this.body, shouldBeStatic);
+    }
+    if (this.anchored) {
+      Matter.Body.setVelocity(this.body, { x: 0, y: 0 });
+      Matter.Body.setAngularVelocity(this.body, 0);
     }
 
     // Sync per-entity gravity.enabled ↔ body.gravityScale so toggling it also
@@ -136,9 +142,15 @@ export class PhysicsComponent {
       this.gravity.force   !== 0    &&
       !this.fixed
     ) {
+      // Mirror Matter's own world-gravity model so `force` behaves as a true
+      // acceleration (px/s² at gravity.scale = 0.001). Per Matter.Engine, each
+      // step does: body.force.y += mass * gravity.y * gravity.scale, which the
+      // solver then integrates into velocity — producing real acceleration
+      // (more airtime → more speed) rather than a constant nudge per frame.
+      const scale = (this._world && this._world.gravity && this._world.gravity.scale) || 0.001;
       Matter.Body.applyForce(this.body, this.body.position, {
         x: 0,
-        y: this.gravity.force * this.body.mass * dt * 0.001,
+        y: this.gravity.force * this.body.mass * scale,
       });
     }
   }
