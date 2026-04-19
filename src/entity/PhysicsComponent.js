@@ -105,8 +105,14 @@ export class PhysicsComponent {
         body = Matter.Bodies.rectangle(x, y, sprite.w * sx, sprite.h * sy, opts);
         break;
       case 'diamond':
-        body = Matter.Bodies.rectangle(x, y, sprite.r * 2 * sx, sprite.r * 2 * sy, opts);
-        Matter.Body.rotate(body, Math.PI / 4);
+        // Bake the 45° diamond tilt into the body's initial angle instead of
+        // rotating afterwards — calling Matter.Body.rotate on top of an
+        // already-angled body compounds PI/4 on every rebuildBody (each time
+        // the user rescales a diamond post-play, it would drift another 45°).
+        body = Matter.Bodies.rectangle(
+          x, y, sprite.r * 2 * sx, sprite.r * 2 * sy,
+          Object.assign({}, opts, { angle: (opts.angle || 0) + Math.PI / 4 }),
+        );
         break;
       case 'star':
       case 'rstar':
