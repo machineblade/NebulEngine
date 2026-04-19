@@ -773,9 +773,9 @@ class Engine {
       }
       sprite.scaleX = Math.max(0.05, nx);
       sprite.scaleY = Math.max(0.05, ny);
-      // Visual-only scale: the Matter body is sized from sprite.w/h/r at
-      // creation and is never re-scaled here, so the collision hull stays at
-      // its original dimensions.
+      // Collision follows the visual — rebuild the Matter body with the new
+      // scaled dimensions so the physics hull matches what the user sees.
+      if (physics?.rebuildBody) physics.rebuildBody(sprite);
       sprite.syncGraphics();
       this._layoutGizmoHandles(sprite);
       this.events.emit('ui:inspectorDirty', entity.id);
@@ -1082,6 +1082,7 @@ class Engine {
     if (t.x !== undefined) sprite.x = t.x;
     if (t.y !== undefined) sprite.y = t.y;
     if (t.rotation !== undefined) sprite.rotation = t.rotation;
+    const scaleChanged = t.scaleX !== undefined || t.scaleY !== undefined;
     if (t.scaleX !== undefined) sprite.scaleX = t.scaleX;
     if (t.scaleY !== undefined) sprite.scaleY = t.scaleY;
     if (physics?.body) {
@@ -1090,6 +1091,7 @@ class Engine {
         Matter.Body.setVelocity(physics.body, { x: 0, y: 0 });
       }
       if (t.rotation !== undefined) Matter.Body.setAngle(physics.body, sprite.rotation);
+      if (scaleChanged && physics.rebuildBody) physics.rebuildBody(sprite);
     }
     sprite.syncGraphics();
     this.events.emit('ui:inspectorDirty', id);
