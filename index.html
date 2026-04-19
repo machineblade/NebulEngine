@@ -49,28 +49,6 @@
           <button class="tb-btn tb-tool"        id="btn-tool-rotate" data-tool="rotate" title="Rotate Tool (W)">↻ ROTATE</button>
           <button class="tb-btn tb-tool"        id="btn-tool-scale"  data-tool="scale"  title="Scale Tool (E)">⇲ SCALE</button>
         </div>
-        <div class="tb-sep"></div>
-        <div class="tb-group" id="grid-group">
-          <button class="tb-btn" id="btn-grid-toggle" title="Toggle grid visibility (G)">▦ GRID</button>
-          <label class="tb-snap-label" title="Snap objects to grid when repositioning">
-            SNAP
-            <select class="tb-select" id="sel-grid-snap">
-              <option value="0">OFF</option>
-              <option value="10">10 px</option>
-              <option value="20" selected>20 px</option>
-              <option value="40">40 px</option>
-              <option value="80">80 px</option>
-            </select>
-          </label>
-        </div>
-        <div class="tb-sep"></div>
-        <label class="tb-snap-label" title="World gravity (0 = zero-G, 1 ≈ Earth, negative = up)">
-          GRAVITY
-          <input class="tb-select tb-num" id="inp-gravity" type="number" step="0.1" value="0" />
-        </label>
-        <div class="tb-sep"></div>
-        <button class="tb-btn" id="btn-spawn" title="Spawn Entity">＋ SPAWN</button>
-        <button class="tb-btn" id="btn-clear" title="Clear Scene">🗑 CLEAR</button>
       </nav>
       <div id="fps-counter">FPS: <span id="fps-value">0</span></div>
 
@@ -99,7 +77,26 @@
             <option value="light">Light</option>
           </select>
         </label>
+        <div class="hm-sep"></div>
+        <!-- Grid: toggle visibility -->
+        <button class="hm-item" id="btn-grid-toggle" title="Toggle grid visibility (G)">
+          <span class="hm-icon">▦</span><span class="hm-label">Grid</span>
+        </button>
+        <!-- Snap: snap objects to grid when repositioning -->
+        <label class="hm-item hm-select-row" title="Snap objects to grid when repositioning">
+          <span class="hm-icon">⇲</span><span class="hm-label">Snap</span>
+          <select class="tb-select" id="sel-grid-snap">
+            <option value="0">OFF</option>
+            <option value="10">10 px</option>
+            <option value="20" selected>20 px</option>
+            <option value="40">40 px</option>
+            <option value="80">80 px</option>
+          </select>
+        </label>
       </div>
+
+      <!-- Hierarchy context menu (hidden by default; positioned at cursor) -->
+      <div id="hier-ctx-menu" class="ctx-menu" role="menu" aria-hidden="true"></div>
     </header>
 
     <!-- Main workspace -->

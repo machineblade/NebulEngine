@@ -22,7 +22,9 @@ export class SceneManager {
     this._engine = Matter.Engine.create();
     this._world = this._engine.world;
     this._world.gravity.x = 0;
-    this._world.gravity.y = 0;
+    // Default world gravity strength — scripts can override via
+    // `this.world.settings.gravity.strength = N` (see Engine._scriptWorld).
+    this._world.gravity.y = 1;
     this._createBounds(w, h);
     this._registerCollisionEvents();
   }
@@ -140,10 +142,13 @@ export class SceneManager {
       const sy = sprite.scaleY ?? 1;
       switch (sprite.shape) {
         case 'rect':
+        case 'square':
+        case 'rsquare':
           if (Math.abs(lx) <= (sprite.w * sx) / 2 && Math.abs(ly) <= (sprite.h * sy) / 2) return entity;
           break;
         case 'diamond':
         case 'star':
+        case 'rstar':
         case 'circle':
         default: {
           // Non-uniform scale on a circular shape → use an elliptical test so

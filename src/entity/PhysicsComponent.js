@@ -1,10 +1,12 @@
 // ============================================================
 //  src/entity/PhysicsComponent.js — Matter.js Physics Component
 //
-//  Changes from v1:
-//  • enabled flag  — ph.enabled = false freezes this body
-//  • setRotationSpeed(rad/s) — clean way to spin from scripts
-//  • rotate(rad/s, dt) — shorthand usable in onUpdate
+//  Unified "pinned" lock (supersedes the old `anchored` + `fixed`):
+//    pinned = true  → body is static, velocity is zeroed every tick,
+//                     applyImpulse/applyForce become no-ops.
+//  Legacy saves/scripts that used `anchored` or `fixed` still work:
+//  either sets `pinned = true` and the `anchored`/`fixed` accessors
+//  forward to `pinned` on read.
 // ============================================================
 
 export class PhysicsComponent {
@@ -17,10 +19,8 @@ export class PhysicsComponent {
     this.vy          = cfg.vy          !== undefined ? cfg.vy          : 0;
     this.restitution = cfg.restitution !== undefined ? cfg.restitution : 0.8;
     this.friction    = cfg.friction    !== undefined ? cfg.friction    : 0.1;
-    // Matter's default air drag is 0.01; the engine previously overrode it to
-    // 0.02 which caused vertical velocity to hit terminal almost instantly when
-    // gravity was applied (so things "fell at constant speed"). 0.001 lets
-    // bodies accelerate naturally under gravity while still damping wild spins.
+    // Matter's default air drag is 0.01; 0.001 lets bodies accelerate naturally
+    // under gravity while still damping wild spins.
     this.frictionAir = cfg.frictionAir !== undefined ? cfg.frictionAir : 0.001;
     this.density     = cfg.density     !== undefined ? cfg.density     : 0.001;
 
@@ -33,19 +33,20 @@ export class PhysicsComponent {
      */
     this.gravity     = normaliseGravity(cfg.gravity);
 
-    this.fixed       = cfg.fixed       || false;
-
-    /**
-     * Anchored = stronger than `fixed`. It makes the body static, zeroes its
-     * velocity/angular velocity every frame, and causes applyImpulse/applyForce
-     * to become no-ops. Use this when you want a platform, wall, or prop that
-     * never moves regardless of collisions, scripts, or gravity.
-     */
-    this.anchored   = cfg.anchored    || false;
+    // Pinned = lock in place. Collapses the old `anchored` + `fixed` fields.
+    // Either legacy flag being truthy pins the body.
+    this.pinned    = !!(cfg.pinned || cfg.anchored || cfg.fixed);
 
     /** Set false to pause physics for this body without removing the component. */
     this.enabled = true;
   }
+
+  // ── Legacy aliases ────────────────────────────────────────
+  // Older scripts/saves use `.anchored` / `.fixed`. Both now forward to `pinned`.
+  get anchored () { return this.pinned; }
+  set anchored (v) { this.pinned = !!v; }
+  get fixed () { return this.pinned; }
+  set fixed (v) { this.pinned = !!v; }
 
   onAttach (entity) {
     this._entity = entity;
@@ -62,13 +63,15 @@ export class PhysicsComponent {
       friction:    this.friction,
       frictionAir: this.frictionAir,
       density:     this.density,
-      isStatic:    this.fixed || this.anchored,
+      isStatic:    this.pinned,
       angle:       sprite.rotation,
       label:       'entity-body',
     };
 
     switch (sprite.shape) {
       case 'rect':
+      case 'square':
+      case 'rsquare':
         this.body = Matter.Bodies.rectangle(x, y, sprite.w, sprite.h, opts);
         break;
       case 'diamond':
@@ -76,6 +79,7 @@ export class PhysicsComponent {
         Matter.Body.rotate(this.body, Math.PI / 4);
         break;
       case 'star':
+      case 'rstar':
         this.body = Matter.Bodies.polygon(x, y, 5, sprite.r, opts);
         break;
       default:
@@ -106,13 +110,11 @@ export class PhysicsComponent {
       this.gravity = normaliseGravity(this.gravity);
     }
 
-    // Sync (anchored || fixed) ↔ isStatic. `fixed` bodies must stay static on
-    // their own, and `anchored` also zeroes any accumulated motion.
-    const shouldBeStatic = !!this.anchored || !!this.fixed;
-    if (this.body.isStatic !== shouldBeStatic) {
-      Matter.Body.setStatic(this.body, shouldBeStatic);
+    // Sync `pinned` ↔ Matter's isStatic, and zero any motion if pinned.
+    if (this.body.isStatic !== !!this.pinned) {
+      Matter.Body.setStatic(this.body, !!this.pinned);
     }
-    if (this.anchored) {
+    if (this.pinned) {
       Matter.Body.setVelocity(this.body, { x: 0, y: 0 });
       Matter.Body.setAngularVelocity(this.body, 0);
     }
@@ -129,9 +131,9 @@ export class PhysicsComponent {
     sprite.y        = this.body.position.y;
     sprite.rotation = this.body.angle;
 
-    // Anchored bodies get their motion quashed every frame so scripts that
+    // Pinned bodies get their motion quashed every frame so scripts that
     // accidentally mutated velocity can't drift them off-position.
-    if (this.anchored) {
+    if (this.pinned) {
       Matter.Body.setVelocity(this.body, { x: 0, y: 0 });
       Matter.Body.setAngularVelocity(this.body, 0);
       return;
@@ -139,8 +141,7 @@ export class PhysicsComponent {
 
     if (
       this.gravity.enabled !== false &&
-      this.gravity.force   !== 0    &&
-      !this.fixed
+      this.gravity.force   !== 0
     ) {
       // Mirror Matter's own world-gravity model so `force` behaves as a true
       // acceleration (px/s² at gravity.scale = 0.001). Per Matter.Engine, each
@@ -158,7 +159,7 @@ export class PhysicsComponent {
   // ── Motion helpers ─────────────────────────────────────────
 
   applyImpulse (fx, fy) {
-    if (this.fixed || this.anchored || !this.body) return;
+    if (this.pinned || !this.body) return;
     Matter.Body.setVelocity(this.body, {
       x: this.body.velocity.x + fx,
       y: this.body.velocity.y + fy,
@@ -166,7 +167,7 @@ export class PhysicsComponent {
   }
 
   applyForce (fx, fy, dt) {
-    if (this.fixed || this.anchored || !this.body) return;
+    if (this.pinned || !this.body) return;
     Matter.Body.applyForce(this.body, this.body.position, {
       x: fx * dt,
       y: fy * dt,
@@ -221,8 +222,7 @@ export class PhysicsComponent {
       frictionAir: this.frictionAir,
       density:     this.density,
       gravity:     { enabled: this.gravity.enabled !== false, force: this.gravity.force || 0 },
-      fixed:       this.fixed,
-      anchored:    this.anchored,
+      pinned:      this.pinned,
     };
   }
 }

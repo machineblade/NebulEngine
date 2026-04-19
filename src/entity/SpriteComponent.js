@@ -1,6 +1,7 @@
 // ============================================================
 //  src/entity/SpriteComponent.js — PixiJS Visual Component
-//  Renders shapes (circle, rect, diamond, star) as Pixi Graphics
+//  Renders shapes: circle, square, rsquare (rounded square),
+//  star, rstar (rounded star). `rect`/`diamond` kept for legacy.
 // ============================================================
 
 export class SpriteComponent {
@@ -37,15 +38,15 @@ export class SpriteComponent {
     }
   }
 
-  _draw () {
-    const g = this._gfx;
-    if (!g) return;
-    g.clear();
-    g.beginFill(this.color, this.alpha);
-
+  _drawShape (g) {
     switch (this.shape) {
-      case 'rect':
-        g.drawRoundedRect(-this.w / 2, -this.h / 2, this.w, this.h, 3);
+      case 'square':
+        g.drawRect(-this.w / 2, -this.h / 2, this.w, this.h);
+        break;
+
+      case 'rect':      // legacy alias for rounded square
+      case 'rsquare':
+        g.drawRoundedRect(-this.w / 2, -this.h / 2, this.w, this.h, Math.min(this.w, this.h) * 0.25);
         break;
 
       case 'diamond': {
@@ -54,32 +55,61 @@ export class SpriteComponent {
         break;
       }
 
-      case 'star': {
-        const pts = 5;
-        const outer = this.r;
-        const inner = this.r * 0.45;
-        const verts = [];
-        for (let i = 0; i < pts * 2; i++) {
-          const rad   = (i * Math.PI) / pts - Math.PI / 2;
-          const dist  = i % 2 === 0 ? outer : inner;
-          verts.push(Math.cos(rad) * dist, Math.sin(rad) * dist);
-        }
-        g.drawPolygon(verts);
+      case 'star':
+      case 'rstar': {
+        this._drawStar(g, this.shape === 'rstar');
         break;
       }
 
       default: // circle
         g.drawCircle(0, 0, this.r);
     }
+  }
 
-    // Outline glow
-    g.endFill();
-    g.lineStyle(1.5, 0xffffff, 0.25);
-    switch (this.shape) {
-      case 'rect': g.drawRoundedRect(-this.w / 2, -this.h / 2, this.w, this.h, 3); break;
-      case 'diamond': { const r = this.r; g.drawPolygon([0,-r, r,0, 0,r, -r,0]); break; }
-      default: g.drawCircle(0, 0, this.r);
+  /**
+   * 5-pointed star.
+   * sharp = classic polygon; rounded = same points, softened with
+   * quadratic curves so edges arc slightly outward (inner vertices are
+   * pushed out) and tips are blunted.
+   */
+  _drawStar (g, rounded) {
+    const pts   = 5;
+    const outer = this.r;
+    const inner = this.r * (rounded ? 0.6 : 0.45);
+    const verts = [];
+    for (let i = 0; i < pts * 2; i++) {
+      const rad  = (i * Math.PI) / pts - Math.PI / 2;
+      const dist = i % 2 === 0 ? outer : inner;
+      verts.push(Math.cos(rad) * dist, Math.sin(rad) * dist);
     }
+    if (!rounded) {
+      g.drawPolygon(verts);
+      return;
+    }
+    // Rounded star: draw with quadraticCurveTo through every other vertex
+    // for a softer silhouette. Pixi's quadraticCurveTo takes a single
+    // control point, so we alternate vertex → control → vertex.
+    g.moveTo(verts[0], verts[1]);
+    for (let i = 0; i < pts * 2; i++) {
+      const cx = verts[i * 2];
+      const cy = verts[i * 2 + 1];
+      const nx = verts[((i + 1) % (pts * 2)) * 2];
+      const ny = verts[((i + 1) % (pts * 2)) * 2 + 1];
+      g.quadraticCurveTo(cx, cy, (cx + nx) / 2, (cy + ny) / 2);
+    }
+    g.closePath();
+  }
+
+  _draw () {
+    const g = this._gfx;
+    if (!g) return;
+    g.clear();
+    g.beginFill(this.color, this.alpha);
+    this._drawShape(g);
+    g.endFill();
+    // Outline glow
+    g.lineStyle(1.5, 0xffffff, 0.25);
+    this._drawShape(g);
   }
 
   update (dt) {
@@ -102,8 +132,9 @@ export class SpriteComponent {
   /** Axis-aligned half-extent in local (pre-rotation) space. Used by the
    *  selection gizmo to place scale handles at the sprite's bounding box. */
   halfExtents () {
-    const hx = (this.shape === 'rect' ? this.w / 2 : this.r) * this.scaleX;
-    const hy = (this.shape === 'rect' ? this.h / 2 : this.r) * this.scaleY;
+    const isRect = this.shape === 'rect' || this.shape === 'square' || this.shape === 'rsquare';
+    const hx = (isRect ? this.w / 2 : this.r) * this.scaleX;
+    const hy = (isRect ? this.h / 2 : this.r) * this.scaleY;
     return { hx, hy };
   }
 

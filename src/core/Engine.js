@@ -56,6 +56,22 @@ class Engine {
     this.scene   = new SceneManager(this.events, this.logger);
     this.ui      = new UIBridge(this, this.events, this.logger);
 
+    // World proxy exposed to scripts as `this.world`. Scripts can read or
+    // write `this.world.settings.gravity.strength` to change vertical world
+    // gravity at runtime (1 ≈ Earth, 0 = zero-G, negative = up).
+    const engine = this;
+    this._scriptWorld = {
+      settings: {
+        gravity: {
+          get strength () { return engine.scene.getGravityY(); },
+          set strength (v) {
+            const n = Number.isFinite(+v) ? +v : 0;
+            engine.scene.setGravityY(n);
+          },
+        },
+      },
+    };
+
     // fps tracking
     this._fpsSamples  = [];
     this._fpsEl       = document.getElementById('fps-value');
@@ -180,8 +196,6 @@ class Engine {
     document.getElementById('btn-play') .addEventListener('click', () => this.play());
     document.getElementById('btn-pause').addEventListener('click', () => this.togglePause());
     document.getElementById('btn-stop') .addEventListener('click', () => this.stop());
-    document.getElementById('btn-spawn').addEventListener('click', () => this._spawnRandom());
-    document.getElementById('btn-clear').addEventListener('click', () => this._clearScene());
     document.getElementById('btn-mute') .addEventListener('click', () => this._toggleAudio());
 
     // Save / Load scene JSON — now surfaced through the hamburger menu,
@@ -232,28 +246,6 @@ class Engine {
         this._drawGrid();                          // keep grid in sync with snap
         this.logger.info('Snap: ' + (this._snapSize ? this._snapSize + ' px' : 'off'));
       });
-    }
-
-    // World gravity — 0 = zero-G, 1 ≈ Earth, negative = up. Persisted.
-    const gravInp = document.getElementById('inp-gravity');
-    if (gravInp) {
-      const saved = (() => {
-        try { return parseFloat(localStorage.getItem('nebulengine.gravity')); }
-        catch (_) { return NaN; }
-      })();
-      const initial = Number.isFinite(saved) ? saved : 0;
-      gravInp.value = String(initial);
-      this.scene.setGravityY(initial);
-
-      const apply = () => {
-        const v = parseFloat(gravInp.value);
-        const g = Number.isFinite(v) ? v : 0;
-        this.scene.setGravityY(g);
-        try { localStorage.setItem('nebulengine.gravity', String(g)); } catch (_) {}
-        this.logger.info('World gravity: ' + g);
-      };
-      gravInp.addEventListener('change', apply);
-      gravInp.addEventListener('input',  apply);
     }
 
     // Theme selector — Default / Dark / Light. Persisted to localStorage and
@@ -712,8 +704,9 @@ class Engine {
       const localX =  dx * cos + dy * sin;                     // inverse rotation
       const localY = -dx * sin + dy * cos;
       // Unscaled bounding half-extent per axis.
-      const baseHx = sprite.shape === 'rect' ? sprite.w / 2 : sprite.r;
-      const baseHy = sprite.shape === 'rect' ? sprite.h / 2 : sprite.r;
+      const isRect = sprite.shape === 'rect' || sprite.shape === 'square' || sprite.shape === 'rsquare';
+      const baseHx = isRect ? sprite.w / 2 : sprite.r;
+      const baseHy = isRect ? sprite.h / 2 : sprite.r;
       let nx = (localX * sign[0]) / baseHx;
       let ny = (localY * sign[1]) / baseHy;
       // Uniform scale unless Shift is held (Shift = non-uniform).
@@ -892,9 +885,9 @@ class Engine {
 
     const configs = [
       { name: 'Player',   color: 0x00e5ff, x: 200, y: 200, shape: 'circle',  r: 20,        physics: { vx: 60,  vy: 40  }, tags: ['player','collider'] },
-      { name: 'Enemy_01', color: 0xff3e6c, x: 500, y: 150, shape: 'rect',    w: 30, h: 30, physics: { vx: -40, vy: 60  }, tags: ['enemy'] },
-      { name: 'Gem_01',   color: 0xa259ff, x: 350, y: 300, shape: 'diamond', r: 16,        physics: { vx: 80,  vy: -50 }, tags: ['pickup'] },
-      { name: 'Platform', color: 0x39ff85, x: 400, y: 420, shape: 'rect',    w: 160, h: 16, physics: { fixed: true },     tags: ['static'] },
+      { name: 'Enemy_01', color: 0xff3e6c, x: 500, y: 150, shape: 'square',  w: 30, h: 30, physics: { vx: -40, vy: 60  }, tags: ['enemy'] },
+      { name: 'Gem_01',   color: 0xa259ff, x: 350, y: 300, shape: 'rsquare', w: 26, h: 26, physics: { vx: 80,  vy: -50 }, tags: ['pickup'] },
+      { name: 'Platform', color: 0x39ff85, x: 400, y: 420, shape: 'rsquare', w: 160, h: 16, physics: { pinned: true },   tags: ['static'] },
       { name: 'Star_01',  color: 0xffd34e, x: 100, y: 350, shape: 'star',    r: 18,        physics: { vx: 50,  vy: 70  }, tags: ['pickup'] },
     ];
 
@@ -908,8 +901,12 @@ class Engine {
     const physics = new PhysicsComponent(cfg.physics || {});
     const script  = new ScriptComponent(this._defaultBehavior(cfg));
 
-    // Inject logger so script errors appear in the engine console
+    // Inject logger + world proxy so script errors appear in the engine
+    // console and scripts can read/write `this.world.settings.gravity.strength`.
     script._logger = this.logger;
+    if (script._script && typeof script._script === 'object') {
+      script._script.world = this._scriptWorld;
+    }
 
     entity.addComponent('physics', physics);
     entity.addComponent('sprite',  sprite);
@@ -925,34 +922,31 @@ class Engine {
     return {};
   }
 
-  _spawnRandom () {
-    const shapes = ['circle', 'rect', 'diamond', 'star'];
+  /**
+   * Spawn a new entity at a given position with one of the supported shapes.
+   * Used by the hierarchy right-click menu.
+   *   shape ∈ 'circle' | 'square' | 'rsquare' | 'star' | 'rstar'
+   */
+  spawnEntity (shape, opts = {}) {
     const colors = [0x00e5ff, 0xff3e6c, 0xa259ff, 0x39ff85, 0xffd34e, 0xff9c27];
     const bounds = this.scene.bounds();
     const cfg = {
-      name:  'Entity_' + Math.floor(Math.random() * 9000 + 1000),
-      color: colors[Math.floor(Math.random() * colors.length)],
-      x:     MathUtils.randInt(40, bounds.w - 40),
-      y:     MathUtils.randInt(40, bounds.h - 40),
-      shape: shapes[Math.floor(Math.random() * shapes.length)],
-      r:     MathUtils.randInt(10, 24),
-      w:     MathUtils.randInt(20, 50),
-      h:     MathUtils.randInt(20, 50),
-      physics: {
-        vx: MathUtils.randRange(-100, 100),
-        vy: MathUtils.randRange(-100, 100),
-      },
-      tags: ['spawned'],
+      name:  opts.name  || ('Entity_' + Math.floor(Math.random() * 9000 + 1000)),
+      color: opts.color ?? colors[Math.floor(Math.random() * colors.length)],
+      x:     opts.x     ?? MathUtils.randInt(60, bounds.w - 60),
+      y:     opts.y     ?? MathUtils.randInt(60, bounds.h - 60),
+      shape,
+      r:     opts.r ?? 18,
+      w:     opts.w ?? 32,
+      h:     opts.h ?? 32,
+      physics: opts.physics || {},
+      tags:  opts.tags || ['spawned'],
     };
     const entity = this._createEntity(cfg);
     this.audio.playSfx('spawn');
-    this.logger.info('Spawned: ' + entity.name + ' [' + cfg.shape + ']');
-  }
-
-  _clearScene () {
-    this.scene.clear();
-    this.audio.playSfx('clear');
-    this.logger.warn('Scene cleared');
+    this.logger.info('Spawned: ' + entity.name + ' [' + shape + ']');
+    this.setSelectedEntity(entity.id);
+    return entity;
   }
 
   // ── Selection helpers ─────────────────────────────────────
@@ -994,8 +988,7 @@ class Engine {
         gravity:     ph.gravity && typeof ph.gravity === 'object'
           ? { enabled: ph.gravity.enabled !== false, force: ph.gravity.force || 0 }
           : { enabled: true, force: typeof ph.gravity === 'number' ? ph.gravity : 0 },
-        fixed:       ph.fixed,
-        anchored:    ph.anchored,
+        pinned:      ph.pinned,
         vx:          ph.body?.velocity?.x ?? 0,
         vy:          ph.body?.velocity?.y ?? 0,
       } : {},
