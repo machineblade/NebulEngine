@@ -1,0 +1,25 @@
+{
+  "name": "nebul-engine",
+  "version": "1.1.0",
+  "description": "A modular browser-based game engine built with PixiJS and Howler.js.",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "start": "npx --yes serve . -p 8080",
+    "serve": "python3 -m http.server 8080"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/machineblade/NebulEngine.git"
+  },
+  "keywords": [
+    "game-engine",
+    "pixijs",
+    "matter-js",
+    "howler",
+    "ecs",
+    "browser"
+  ],
+  "license": "MIT",
+  "author": "machineblade"
+}

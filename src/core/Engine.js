@@ -16,7 +16,7 @@ import { ScriptComponent }  from '../entity/ScriptComponent.js';
 
 class Engine {
   constructor () {
-    this.version    = '1.0.0';
+    this.version    = '1.1.0';
     this.running    = false;
     this.paused     = false;
     this.elapsed    = 0;
@@ -25,6 +25,12 @@ class Engine {
     this._selectedEntityId = null;
     this._localSpace = false;
     this._gizmo      = null;
+
+    // Viewport transform (applied to the PIXI stage for pan/zoom)
+    this._view      = { x: 0, y: 0, scale: 1 };
+    this._panning   = false;
+    this._panStart  = { mx: 0, my: 0, vx: 0, vy: 0 };
+    this._gridSize  = 20;
 
     // core systems
     this.events  = new EventBus();
@@ -47,6 +53,31 @@ class Engine {
     this._spawnDemoScene();
 
     this.logger.info('NebulEngine v' + this.version + ' initialized');
+  }
+
+  // ── Viewport Transform ────────────────────────────────────
+  _applyView () {
+    this.stage.position.set(this._view.x, this._view.y);
+    this.stage.scale.set(this._view.scale, this._view.scale);
+  }
+
+  _resetView () {
+    this._view = { x: 0, y: 0, scale: 1 };
+    this._applyView();
+  }
+
+  /** Convert a screen-space canvas point into stage (world) space. */
+  _screenToStage (sx, sy) {
+    return {
+      x: (sx - this._view.x) / this._view.scale,
+      y: (sy - this._view.y) / this._view.scale,
+    };
+  }
+
+  /** Snap a value to the configured grid when snap is active. */
+  _snap (v, active) {
+    if (!active) return v;
+    return Math.round(v / this._gridSize) * this._gridSize;
   }
 
   // ── PixiJS Setup ──────────────────────────────────────────
@@ -107,20 +138,101 @@ class Engine {
     canvas.addEventListener('pointerdown', (event) => {
       if (this._draggingGizmo) return;
       const rect = canvas.getBoundingClientRect();
-      const x = event.clientX - rect.left;
-      const y = event.clientY - rect.top;
-      const entity = this.scene.hitTest(x, y);
+      const sx = event.clientX - rect.left;
+      const sy = event.clientY - rect.top;
+
+      // Middle mouse button: pan the viewport.
+      if (event.button === 1) {
+        this._panning = true;
+        this._panStart = { mx: event.clientX, my: event.clientY, vx: this._view.x, vy: this._view.y };
+        canvas.style.cursor = 'grabbing';
+        event.preventDefault();
+        return;
+      }
+
+      const world  = this._screenToStage(sx, sy);
+      const entity = this.scene.hitTest(world.x, world.y);
       if (entity) this.setSelectedEntity(entity.id);
+      else        this.setSelectedEntity(null);
     });
+
+    window.addEventListener('pointermove', (event) => {
+      if (!this._panning) return;
+      this._view.x = this._panStart.vx + (event.clientX - this._panStart.mx);
+      this._view.y = this._panStart.vy + (event.clientY - this._panStart.my);
+      this._applyView();
+    });
+    window.addEventListener('pointerup', () => {
+      if (!this._panning) return;
+      this._panning = false;
+      canvas.style.cursor = 'pointer';
+    });
+
+    // Wheel zoom, centered on the mouse position so content stays put.
+    canvas.addEventListener('wheel', (event) => {
+      event.preventDefault();
+      const rect = canvas.getBoundingClientRect();
+      const sx = event.clientX - rect.left;
+      const sy = event.clientY - rect.top;
+      const before = this._screenToStage(sx, sy);
+      const factor = Math.exp(-event.deltaY * 0.0015);
+      this._view.scale = Math.max(0.2, Math.min(4, this._view.scale * factor));
+      // Keep the point under the cursor fixed.
+      this._view.x = sx - before.x * this._view.scale;
+      this._view.y = sy - before.y * this._view.scale;
+      this._applyView();
+    }, { passive: false });
   }
 
   _bindEditorShortcuts () {
     window.addEventListener('keydown', (event) => {
+      // Don't intercept keys while the user is typing in a script editor etc.
+      const tag = event.target?.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || event.target?.isContentEditable) return;
+
       if (event.altKey && event.code === 'KeyL') {
         this._localSpace = !this._localSpace;
         this.events.emit('editor:spaceModeChanged', { local: this._localSpace });
         this.logger.info('Space mode: ' + (this._localSpace ? 'Local' : 'Global'));
         event.preventDefault();
+        return;
+      }
+
+      // Space — play / pause toggle.
+      if (event.code === 'Space') {
+        event.preventDefault();
+        if (!this.running) this.play();
+        else               this.togglePause();
+        return;
+      }
+
+      // Delete / Backspace — remove selected entity.
+      if (event.code === 'Delete' || event.code === 'Backspace') {
+        if (this._selectedEntityId != null) {
+          event.preventDefault();
+          this._removeSelected();
+        }
+        return;
+      }
+
+      // Ctrl/Cmd+D — duplicate selected entity.
+      if ((event.ctrlKey || event.metaKey) && event.code === 'KeyD') {
+        event.preventDefault();
+        this._duplicateSelected();
+        return;
+      }
+
+      // Escape — deselect.
+      if (event.code === 'Escape') {
+        this.setSelectedEntity(null);
+        return;
+      }
+
+      // 0 — reset viewport.
+      if (event.code === 'Digit0' || event.code === 'Numpad0') {
+        this._resetView();
+        this.logger.info('Viewport reset');
+        return;
       }
     });
   }
@@ -196,11 +308,13 @@ class Engine {
 
   _onGizmoDrag (event) {
     if (!this._draggingGizmo || !this._dragAxis) return;
+    // Convert screen-space deltas to world-space deltas through the viewport zoom.
+    const scale    = this._view.scale || 1;
     const rect    = this.app.view.getBoundingClientRect();
     const currentX = event.clientX - rect.left;
     const currentY = event.clientY - rect.top;
-    const deltaX   = currentX - this._dragStartPos.x;
-    const deltaY   = currentY - this._dragStartPos.y;
+    const deltaX   = (currentX - this._dragStartPos.x) / scale;
+    const deltaY   = (currentY - this._dragStartPos.y) / scale;
     const entity   = this.scene.getEntity(this._selectedEntityId);
     if (!entity) return;
     const sprite  = entity.getComponent('sprite');
@@ -218,6 +332,12 @@ class Engine {
     } else {
       if (this._dragAxis === 'x') newX += deltaX;
       else                        newY += deltaY;
+    }
+
+    // Hold Shift to snap-to-grid while dragging.
+    if (event.shiftKey) {
+      newX = this._snap(newX, true);
+      newY = this._snap(newY, true);
     }
 
     sprite.x = newX; sprite.y = newY;
@@ -261,8 +381,8 @@ class Engine {
     this.events.emit('engine:stop');
     this.audio.stopAll();
     this.logger.info('Scene stopped');
-    resetEntityIds();          // ← IDs reset to 1 after every stop
-    this._spawnDemoScene();
+    // Note: stopping preserves the current scene. Use the CLEAR button to
+    // empty it, or LOAD to swap in a saved scene.
   }
 
   // ── Main Loop ──────────────────────────────────────────────
@@ -283,10 +403,12 @@ class Engine {
       this._lastFpsTick = now;
     }
 
-    this.input.update();
     this.scene.update(dt, this.elapsed);
     this._updateSelectionGizmo();
     this.ui.updateStatus(this.scene.entityCount(), this.elapsed);
+    // Snapshot at END of frame so isKeyJustDown / isKeyJustUp correctly
+    // compare this frame's state against the *previous* frame's state.
+    this.input.update();
   }
 
   // ── Scene Helpers ──────────────────────────────────────────
@@ -356,6 +478,51 @@ class Engine {
     this.scene.clear();
     this.audio.playSfx('clear');
     this.logger.warn('Scene cleared');
+  }
+
+  // ── Selection helpers ─────────────────────────────────────
+  _removeSelected () {
+    if (this._selectedEntityId == null) return;
+    const entity = this.scene.getEntity(this._selectedEntityId);
+    if (!entity) return;
+    const name = entity.name;
+    this.scene.removeEntity(this._selectedEntityId);
+    this.logger.info('Removed: ' + name);
+  }
+
+  _duplicateSelected () {
+    if (this._selectedEntityId == null) return;
+    const src = this.scene.getEntity(this._selectedEntityId);
+    if (!src) return;
+    const spr = src.getComponent('sprite');
+    const ph  = src.getComponent('physics');
+    if (!spr) return;
+    const cfg = {
+      name:  src.name + '_copy',
+      tags:  [...src.tags],
+      color: spr.color,
+      shape: spr.shape,
+      x:     spr.x + 24,
+      y:     spr.y + 24,
+      r:     spr.r,
+      w:     spr.w,
+      h:     spr.h,
+      alpha: spr.alpha,
+      physics: ph ? {
+        restitution: ph.restitution,
+        friction:    ph.friction,
+        frictionAir: ph.frictionAir,
+        density:     ph.density,
+        gravity:     ph.gravity,
+        fixed:       ph.fixed,
+        vx:          ph.body?.velocity?.x ?? 0,
+        vy:          ph.body?.velocity?.y ?? 0,
+      } : {},
+    };
+    const dup = this._createEntity(cfg);
+    this.audio.playSfx('spawn');
+    this.setSelectedEntity(dup.id);
+    this.logger.info('Duplicated: ' + dup.name);
   }
 
   _toggleAudio () {

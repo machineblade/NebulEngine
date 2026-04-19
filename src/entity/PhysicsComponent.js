@@ -114,14 +114,16 @@ export class PhysicsComponent {
   }
 
   /**
-   * Spin by a delta each frame — use inside onUpdate.
-   * This is the correct physics-aware replacement for spr.rotation += x * dt.
-   * @param {number} radsPerSec
-   * @param {number} dt  delta-time from onUpdate
+   * Spin at a given angular speed — use inside onUpdate.
+   * Matter steps at ~60 Hz, so angular-velocity is rad/step. We divide by 60
+   * to turn the user's rad/sec value into the right per-step quantity.
+   *
+   * @param {number} radsPerSec  desired spin speed in radians/second
+   * @param {number} [_dt]       accepted for API compatibility; not used
    */
-  rotate (radsPerSec, dt) {
+  rotate (radsPerSec, _dt) {
     if (!this.body) return;
-    Matter.Body.setAngularVelocity(this.body, radsPerSec * dt);
+    Matter.Body.setAngularVelocity(this.body, radsPerSec / 60);
   }
 
   speed () {

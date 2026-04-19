@@ -1,0 +1,30 @@
+# Node / npm
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+.pnpm-store/
+
+# Build / cache
+dist/
+build/
+.cache/
+.parcel-cache/
+
+# Editor / OS
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.swp
+*~
+
+# Env
+.env
+.env.local
+.env.*.local
+
+# User-saved scenes
+scene.json
+scenes/

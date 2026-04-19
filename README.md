@@ -1,6 +1,6 @@
-# NebulEngine v1.0.0
+# NebulEngine v1.1.0
 
-A modular browser-based **game engine** built with **PixiJS** (rendering) and **Howler.js** (audio).
+A modular browser-based **game engine** built with **PixiJS** (rendering), **Matter.js** (physics) and **Howler.js** (audio).
 
 ## Folder Structure
 
@@ -33,25 +33,52 @@ game-engine/
 
 ## How to Run
 
-Simply open `index.html` in a modern browser — no build step required.
+No build step required. Serve the repo root over HTTP and open `index.html`:
 
-> **Note:** Because this uses ES Modules (`type="module"`), you must serve it from a local HTTP server rather than opening the file directly. Use any of:
-> - `npx serve .`
-> - `python3 -m http.server 8080`
-> - VS Code Live Server extension
+```bash
+npm start                    # serves on :8080 via `npx serve`
+# or
+python3 -m http.server 8080
+# or use the VS Code Live Server extension
+```
+
+Because the engine uses native ES modules (`type="module"`), the files **must**
+be served over HTTP — opening `index.html` directly via `file://` will not
+work.
 
 ## Editor Controls
 
-| Button | Action |
-|--------|--------|
-| ▶ PLAY | Start the scene loop |
-| ⏸ PAUSE | Pause/resume the loop |
-| ⏹ STOP | Stop and reset the scene |
-| ＋ SPAWN | Add a random entity |
-| 🗑 CLEAR | Remove all entities |
-| 🔊 AUDIO | Toggle mute |
+| Button       | Action                                |
+|--------------|---------------------------------------|
+| ▶ PLAY      | Start the scene loop                  |
+| ⏸ PAUSE     | Pause / resume the loop               |
+| ⏹ STOP      | Stop the loop (scene is preserved)    |
+| ＋ SPAWN     | Add a random entity                   |
+| 🗑 CLEAR     | Remove all entities                   |
+| 💾 SAVE      | Download the current scene as JSON    |
+| 📂 LOAD      | Load a scene from a JSON file         |
+| 🔊 AUDIO     | Toggle mute                           |
 
-Click any entity in the **Hierarchy** panel to inspect its live properties in the **Inspector**.
+Click any entity in the **Hierarchy** panel (or in the viewport) to select
+it. The **Inspector** panel lets you edit transform, color, alpha, gravity,
+bounce, drag and the *fixed* flag in place — changes apply instantly.
+
+### Keyboard shortcuts
+
+| Shortcut                | Action                                  |
+|-------------------------|-----------------------------------------|
+| `Space`                 | Play / pause                            |
+| `Delete` / `Backspace`  | Remove selected entity                  |
+| `Ctrl/Cmd + D`          | Duplicate selected entity               |
+| `Escape`                | Deselect                                |
+| `0`                     | Reset viewport zoom / pan               |
+| `Alt + L`               | Toggle gizmo local / global space       |
+| Mouse wheel             | Zoom in / out (centered on cursor)      |
+| Middle-mouse drag       | Pan the viewport                        |
+| `Shift` + drag a gizmo  | Snap position to the 20 px grid         |
+
+Shortcuts are ignored while focus is inside the script editor or an inspector
+field, so typing code never accidentally triggers the engine.
 
 ## Architecture
 
@@ -96,4 +123,29 @@ entity.addComponent('script', new ScriptComponent({
     ph.applyForce(0, 200, dt);  // gravity
   },
 }));
-```# NebulEngine
+```
+
+## Changelog
+
+### v1.1.0
+
+- **Editable inspector** — edit name, position, rotation, color, alpha,
+  gravity, bounce, drag and the *fixed* flag directly in the panel.
+- **Duplicate entity** action (inspector button + `Ctrl/Cmd+D`).
+- **Viewport pan / zoom** — mouse wheel to zoom, middle-drag to pan, `0` to
+  reset.
+- **Grid snap** while dragging the gizmo (hold `Shift`).
+- **Keyboard shortcuts** for Play / Pause (`Space`), Delete, Duplicate and
+  deselect (`Esc`).
+- **Bug fixes**
+  - `InputManager.isKeyJustDown` / `isKeyJustUp` now work correctly from
+    scripts (the frame-state snapshot used to be taken before input was
+    read).
+  - `PhysicsComponent.rotate(radsPerSec, dt)` now actually spins at
+    `radsPerSec` instead of applying the `dt` factor twice.
+  - `STOP` no longer wipes your scene and reloads the demo — the scene is
+    preserved so you can inspect it after stopping.
+  - Engine keyboard shortcuts (Space, Delete, arrows…) no longer fire
+    while you are typing in the script editor or an inspector field.
+  - `AudioManager` now degrades gracefully when the Howler.js CDN is
+    unavailable instead of throwing on every `playSfx` call.

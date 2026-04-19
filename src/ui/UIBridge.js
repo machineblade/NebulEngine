@@ -418,7 +418,30 @@ export class UIBridge {
 
   // ── Inspector ──────────────────────────────────────────────
   _refreshInspector () {
-    if (this._selected) this._renderInspector(this._selected);
+    if (!this._selected) return;
+    // Don't destroy the DOM while the user is actively editing a field —
+    // just push live values into read-only rows.
+    const focused = this._inspectorEl?.contains(document.activeElement);
+    if (focused) { this._syncInspectorLiveValues(this._selected); return; }
+    this._renderInspector(this._selected);
+  }
+
+  /** Update read-only numeric rows without rebuilding the DOM. */
+  _syncInspectorLiveValues (id) {
+    const entity = this.engine.scene.getEntity(id);
+    if (!entity) return;
+    const ph = entity.getComponent('physics');
+    if (!ph) return;
+    const set = (sel, v) => {
+      const el = this._inspectorEl.querySelector(sel);
+      if (el) el.textContent = v;
+    };
+    const velX = ph.body?.velocity?.x ?? 0;
+    const velY = ph.body?.velocity?.y ?? 0;
+    set('[data-live="velX"]',  Number.isFinite(velX) ? velX.toFixed(1) : 'n/a');
+    set('[data-live="velY"]',  Number.isFinite(velY) ? velY.toFixed(1) : 'n/a');
+    set('[data-live="speed"]', Number.isFinite(ph.speed()) ? ph.speed().toFixed(1) : 'n/a');
+    set('[data-live="mass"]',  ph.body?.mass?.toFixed ? ph.body.mass.toFixed(2) : (ph.body?.mass ?? 'n/a'));
   }
 
   _renderInspector (id) {
@@ -443,10 +466,14 @@ export class UIBridge {
     const grav   = ph ? ph.gravity                  : 'n/a';
     const phEn   = ph ? ph.enabled                  : false;
 
+    const rotDeg = spr && Number.isFinite(spr.rotation) ? (spr.rotation * 180 / Math.PI).toFixed(1) : '0';
+
     this._inspectorEl.innerHTML = `
       <div class="insp-section">
         <div class="insp-section-title">IDENTITY</div>
-        <div class="insp-row"><span class="insp-label">Name</span><span class="insp-value">${entity.name}</span></div>
+        <div class="insp-row"><span class="insp-label">Name</span>
+          <input class="insp-input" data-field="name" value="${this._esc(entity.name)}" />
+        </div>
         <div class="insp-row"><span class="insp-label">ID</span><span class="insp-value">#${entity.id}</span></div>
         <div class="insp-row"><span class="insp-label">Active</span><span class="insp-value" style="color:var(--green)">${entity.active}</span></div>
         <div class="insp-row"><span class="insp-label">Tags</span>
@@ -457,14 +484,22 @@ export class UIBridge {
       ${spr ? `
       <div class="insp-section">
         <div class="insp-section-title">TRANSFORM</div>
-        <div class="insp-row"><span class="insp-label">X</span><span class="insp-value">${xValue}</span></div>
-        <div class="insp-row"><span class="insp-label">Y</span><span class="insp-value">${yValue}</span></div>
-        <div class="insp-row"><span class="insp-label">Rotation</span><span class="insp-value">${rotValue}</span></div>
+        <div class="insp-row"><span class="insp-label">X</span>
+          <input class="insp-input insp-num" data-field="x" type="number" step="1" value="${xValue}" />
+        </div>
+        <div class="insp-row"><span class="insp-label">Y</span>
+          <input class="insp-input insp-num" data-field="y" type="number" step="1" value="${yValue}" />
+        </div>
+        <div class="insp-row"><span class="insp-label">Rotation°</span>
+          <input class="insp-input insp-num" data-field="rotation" type="number" step="1" value="${rotDeg}" />
+        </div>
         <div class="insp-row"><span class="insp-label">Shape</span><span class="insp-value">${spr.shape}</span></div>
         <div class="insp-row"><span class="insp-label">Color</span>
-          <span class="insp-value"><span class="insp-color-dot" style="background:${colorHex}"></span> ${colorHex}</span>
+          <input class="insp-color" data-field="color" type="color" value="${colorHex}" />
         </div>
-        <div class="insp-row"><span class="insp-label">Alpha</span><span class="insp-value">${alphaVal}</span></div>
+        <div class="insp-row"><span class="insp-label">Alpha</span>
+          <input class="insp-input insp-num" data-field="alpha" type="number" step="0.05" min="0" max="1" value="${alphaVal}" />
+        </div>
       </div>` : ''}
 
       ${ph ? `
@@ -473,12 +508,22 @@ export class UIBridge {
           <button class="insp-toggle-btn" id="insp-toggle-physics">${phEn ? '⏸ Disable' : '▶ Enable'}</button>
         </div>
         <div class="insp-row"><span class="insp-label">Enabled</span><span class="insp-value" style="color:${phEn ? 'var(--green)' : 'var(--red)'}">${phEn}</span></div>
-        <div class="insp-row"><span class="insp-label">Vel X</span><span class="insp-value">${Number.isFinite(velX) ? velX.toFixed(1) : 'n/a'}</span></div>
-        <div class="insp-row"><span class="insp-label">Vel Y</span><span class="insp-value">${Number.isFinite(velY) ? velY.toFixed(1) : 'n/a'}</span></div>
-        <div class="insp-row"><span class="insp-label">Speed</span><span class="insp-value">${Number.isFinite(spd) ? spd.toFixed(1) : 'n/a'}</span></div>
-        <div class="insp-row"><span class="insp-label">Mass</span><span class="insp-value">${mass}</span></div>
-        <div class="insp-row"><span class="insp-label">Drag</span><span class="insp-value">${drag}</span></div>
-        <div class="insp-row"><span class="insp-label">Gravity</span><span class="insp-value">${grav}</span></div>
+        <div class="insp-row"><span class="insp-label">Fixed</span>
+          <input class="insp-check" data-field="fixed" type="checkbox" ${ph.fixed ? 'checked' : ''} />
+        </div>
+        <div class="insp-row"><span class="insp-label">Vel X</span><span class="insp-value" data-live="velX">${Number.isFinite(velX) ? velX.toFixed(1) : 'n/a'}</span></div>
+        <div class="insp-row"><span class="insp-label">Vel Y</span><span class="insp-value" data-live="velY">${Number.isFinite(velY) ? velY.toFixed(1) : 'n/a'}</span></div>
+        <div class="insp-row"><span class="insp-label">Speed</span><span class="insp-value" data-live="speed">${Number.isFinite(spd) ? spd.toFixed(1) : 'n/a'}</span></div>
+        <div class="insp-row"><span class="insp-label">Mass</span><span class="insp-value" data-live="mass">${typeof mass === 'number' ? mass.toFixed(2) : mass}</span></div>
+        <div class="insp-row"><span class="insp-label">Drag</span>
+          <input class="insp-input insp-num" data-field="frictionAir" type="number" step="0.005" min="0" max="1" value="${drag}" />
+        </div>
+        <div class="insp-row"><span class="insp-label">Bounce</span>
+          <input class="insp-input insp-num" data-field="restitution" type="number" step="0.05" min="0" max="2" value="${ph.restitution.toFixed(2)}" />
+        </div>
+        <div class="insp-row"><span class="insp-label">Gravity</span>
+          <input class="insp-input insp-num" data-field="gravity" type="number" step="10" value="${ph.gravity}" />
+        </div>
       </div>` : ''}
 
       ${sc ? `
@@ -489,7 +534,10 @@ export class UIBridge {
         <div class="insp-row"><span class="insp-label">Has onUpdate</span><span class="insp-value">${!!sc._script?.onUpdate}</span></div>
       </div>` : ''}
 
-      <button class="insp-remove-btn" id="insp-remove-btn">⚠ REMOVE ENTITY</button>
+      <div class="insp-btn-row">
+        <button class="insp-action-btn" id="insp-duplicate-btn" title="Duplicate (Ctrl+D)">⎘ DUPLICATE</button>
+        <button class="insp-remove-btn" id="insp-remove-btn" title="Remove (Del)">⚠ REMOVE</button>
+      </div>
     `;
 
     document.getElementById('insp-toggle-physics')?.addEventListener('click', () => {
@@ -504,6 +552,96 @@ export class UIBridge {
       this.engine.scene.removeEntity(id);
       this.logger.warn('Entity removed: ' + entity.name);
     });
+
+    document.getElementById('insp-duplicate-btn')?.addEventListener('click', () => {
+      this.engine._duplicateSelected();
+    });
+
+    // Hook up editable fields.
+    this._inspectorEl.querySelectorAll('[data-field]').forEach(input => {
+      input.addEventListener('change', () => this._applyInspectorField(id, input));
+      if (input.tagName === 'INPUT' && input.type !== 'checkbox' && input.type !== 'color') {
+        input.addEventListener('keydown', (e) => {
+          if (e.key === 'Enter')  { input.blur(); }
+          if (e.key === 'Escape') { this._renderInspector(id); }
+        });
+      }
+    });
+  }
+
+  /** Write a value from an inspector input back to the entity. */
+  _applyInspectorField (id, input) {
+    const entity = this.engine.scene.getEntity(id);
+    if (!entity) return;
+    const spr = entity.getComponent('sprite');
+    const ph  = entity.getComponent('physics');
+    const field = input.dataset.field;
+    const raw   = input.type === 'checkbox' ? input.checked : input.value;
+
+    switch (field) {
+      case 'name': {
+        const name = String(raw).trim() || entity.name;
+        entity.name = name;
+        const nameEl = this._hierarchyEl.querySelector(`[data-id="${id}"] .ent-name`);
+        if (nameEl) nameEl.textContent = name;
+        this._updateWorkspaceSelection(id);
+        break;
+      }
+      case 'x': case 'y': {
+        if (!spr) break;
+        const v = parseFloat(raw); if (!Number.isFinite(v)) break;
+        spr[field] = v;
+        if (ph?.body) {
+          Matter.Body.setPosition(ph.body, { x: spr.x, y: spr.y });
+          Matter.Body.setVelocity(ph.body, { x: 0, y: 0 });
+        }
+        break;
+      }
+      case 'rotation': {
+        if (!spr) break;
+        const v = parseFloat(raw); if (!Number.isFinite(v)) break;
+        spr.rotation = v * Math.PI / 180;
+        if (ph?.body) Matter.Body.setAngle(ph.body, spr.rotation);
+        break;
+      }
+      case 'alpha': {
+        if (!spr) break;
+        const v = Math.max(0, Math.min(1, parseFloat(raw)));
+        if (!Number.isFinite(v)) break;
+        spr.setAlpha(v);
+        break;
+      }
+      case 'color': {
+        if (!spr) break;
+        const hex = String(raw).replace('#', '');
+        const num = parseInt(hex, 16);
+        if (!Number.isNaN(num)) {
+          spr.setColor(num);
+          const icon = this._hierarchyEl.querySelector(`[data-id="${id}"] .ent-icon`);
+          if (icon) icon.style.color = '#' + hex.padStart(6, '0');
+        }
+        break;
+      }
+      case 'fixed': {
+        if (!ph?.body) break;
+        ph.fixed = !!raw;
+        Matter.Body.setStatic(ph.body, ph.fixed);
+        break;
+      }
+      case 'frictionAir': case 'restitution': {
+        if (!ph?.body) break;
+        const v = parseFloat(raw); if (!Number.isFinite(v)) break;
+        ph[field] = v;
+        ph.body[field] = v;
+        break;
+      }
+      case 'gravity': {
+        if (!ph) break;
+        const v = parseFloat(raw); if (!Number.isFinite(v)) break;
+        ph.gravity = v;
+        break;
+      }
+    }
   }
 
   _showInspectorEmpty () {
