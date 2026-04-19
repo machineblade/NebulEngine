@@ -455,10 +455,14 @@ export class UIBridge {
 
     const ta = win.querySelector('textarea');
     ta.value = this._scripts.get(name);
+    // All handlers read the *current* name from `win.dataset.scriptName` rather
+    // than the parameter captured at creation time, so a rename while the
+    // window is open doesn't leave these closures writing to a ghost key.
     ta.addEventListener('input', () => {
-      this._scripts.set(name, ta.value);
+      const curName = win.dataset.scriptName;
+      this._scripts.set(curName, ta.value);
       // Keep the bottom-panel script editor in sync if the same script is active.
-      if (this._activeScript === name && this._scriptEditorEl) {
+      if (this._activeScript === curName && this._scriptEditorEl) {
         this._scriptEditorEl.value = ta.value;
       }
     });
@@ -510,9 +514,10 @@ export class UIBridge {
 
     // Buttons
     win.querySelector('.fw-close').addEventListener('click', () => {
+      const curName = win.dataset.scriptName;
       win.remove();
-      this._floatingEditors.delete(name);
-      this.logger.info('Closed script window: ' + name);
+      this._floatingEditors.delete(curName);
+      this.logger.info('Closed script window: ' + curName);
     });
     win.querySelector('.fw-min').addEventListener('click', () => {
       win.classList.toggle('minimized');
