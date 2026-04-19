@@ -86,6 +86,10 @@ export class SceneManager {
     }
 
     const thickness = 80;
+    // Side/top walls are perfectly elastic (legacy bouncy-box behavior so
+    // zero-G scenes still pinball). The bottom acts as a real floor:
+    // non-bouncy with light friction so entities rest on it under gravity
+    // instead of bouncing forever.
     const wallOptions = {
       isStatic: true,
       restitution: 1,
@@ -93,10 +97,17 @@ export class SceneManager {
       frictionStatic: 0,
       label: 'scene-wall',
     };
+    const floorOptions = {
+      isStatic: true,
+      restitution: 0,
+      friction: 0.4,
+      frictionStatic: 0.5,
+      label: 'scene-floor',
+    };
 
     this._walls = [
       Matter.Bodies.rectangle(w / 2, -thickness / 2, w, thickness, wallOptions),
-      Matter.Bodies.rectangle(w / 2, h + thickness / 2, w, thickness, wallOptions),
+      Matter.Bodies.rectangle(w / 2, h + thickness / 2, w, thickness, floorOptions),
       Matter.Bodies.rectangle(-thickness / 2, h / 2, thickness, h, wallOptions),
       Matter.Bodies.rectangle(w + thickness / 2, h / 2, thickness, h, wallOptions),
     ];

@@ -626,6 +626,10 @@ class Engine {
     if (this._selectedEntityId === id) return;
     this._selectedEntityId = id;
     this.events.emit('ui:entitySelected', id);
+    // The main loop only runs between PLAY and STOP, so in editor-stopped
+    // state nothing else will refresh the gizmo. Update it here so handles
+    // appear the moment an entity is selected.
+    this._updateSelectionGizmo();
   }
 
   _updateSelectionGizmo () {
