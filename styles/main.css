@@ -2,7 +2,8 @@
    NebulEngine — Main Stylesheet
    ========================================= */
 
-:root {
+:root,
+html[data-theme="default"] {
   --bg-void:       #080c10;
   --bg-panel:      #0d1117;
   --bg-panel2:     #111820;
@@ -18,12 +19,60 @@
   --green:         #39ff85;
   --yellow:        #ffd34e;
   --red:           #ff3e6c;
+  /* Pixi canvas + grid (parsed at runtime by Engine._applyThemeColors) */
+  --canvas-bg:     #080c10;
+  --grid-line:     #1e2d3d;
+  --grid-axis:     #2e4d6d;
   --font-mono:     'Share Tech Mono', monospace;
   --font-display:  'Orbitron', monospace;
 
   --header-h:  44px;
   --footer-h:  220px;
   --sidebar-w: 220px;
+}
+
+/* ── Dark theme ─── pure white-on-black ─── */
+html[data-theme="dark"] {
+  --bg-void:       #000000;
+  --bg-panel:      #000000;
+  --bg-panel2:     #0a0a0a;
+  --bg-hover:      #1a1a1a;
+  --border:        #bbbbbb;
+  --border-bright: #ffffff;
+  --accent:        #ffffff;
+  --accent2:       #ffffff;
+  --accent3:       #ffffff;
+  --text-primary:  #ffffff;
+  --text-muted:    #cccccc;
+  --text-dim:      #888888;
+  --green:         #ffffff;
+  --yellow:        #ffffff;
+  --red:           #ffffff;
+  --canvas-bg:     #000000;
+  --grid-line:     #bbbbbb;
+  --grid-axis:     #ffffff;
+}
+
+/* ── Light theme ─── black-on-white ─── */
+html[data-theme="light"] {
+  --bg-void:       #ffffff;
+  --bg-panel:      #ffffff;
+  --bg-panel2:     #f4f4f4;
+  --bg-hover:      #e8e8e8;
+  --border:        #000000;
+  --border-bright: #000000;
+  --accent:        #000000;
+  --accent2:       #000000;
+  --accent3:       #000000;
+  --text-primary:  #000000;
+  --text-muted:    #333333;
+  --text-dim:      #666666;
+  --green:         #000000;
+  --yellow:        #000000;
+  --red:           #000000;
+  --canvas-bg:     #ffffff;
+  --grid-line:     #cccccc;
+  --grid-axis:     #000000;
 }
 
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -231,14 +280,14 @@ aside {
   min-width: 70px;
 }
 .script-item:active { cursor: grabbing; }
-.script-item:hover { background: rgba(0, 229, 255, 0.08); }
-.script-item.selected { background: rgba(0, 229, 255, 0.2); border-color: var(--accent); }
+.script-item:hover { background: var(--bg-hover); }
+.script-item.selected { background: var(--bg-hover); border-color: var(--accent); }
 .script-item.dragging { opacity: 0.5; }
 
 .script-icon { font-size: 16px; }
 .script-separator { display: none; }
 .script-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; padding: 2px 4px; border-radius: 2px; word-break: break-word; white-space: normal; max-width: 65px; }
-.script-name:hover { background: rgba(0, 229, 255, 0.1); }
+.script-name:hover { background: var(--bg-hover); }
 .script-name.editable { background: var(--bg-void); border: 1px solid var(--accent); padding: 1px 3px; }
 .script-item input.script-name.editable { outline: none; font-family: var(--font-mono); font-size: 11px; color: var(--text-primary); width: 60px; }
 
@@ -297,7 +346,7 @@ aside {
   height: var(--footer-h);
   min-height: 140px;
   max-height: 60%;
-  background: rgba(13,17,23,0.97);
+  background: var(--bg-panel);
   border-top: 1px solid var(--border);
   display: flex;
   flex-direction: column;
@@ -312,7 +361,7 @@ aside {
   padding: 6px 12px;
   cursor: ns-resize;
   border-bottom: 1px solid var(--border);
-  background: rgba(8,12,16,0.98);
+  background: var(--bg-void);
   flex-shrink: 0;
 }
 
@@ -688,7 +737,7 @@ aside {
   outline: none;
   tab-size: 2;
 }
-.fw-textarea:focus { background: #050a0f; }
+.fw-textarea:focus { background: var(--bg-void); }
 
 .fw-resize {
   position: absolute;

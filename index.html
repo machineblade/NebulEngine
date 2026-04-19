@@ -8,6 +8,18 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Orbitron:wght@400;700;900&display=swap" rel="stylesheet" />
 
+  <!-- Apply persisted theme before first paint to avoid a flash. -->
+  <script>
+    (function () {
+      try {
+        var t = localStorage.getItem('nebulengine.theme') || 'default';
+        document.documentElement.setAttribute('data-theme', t);
+      } catch (_) {
+        document.documentElement.setAttribute('data-theme', 'default');
+      }
+    })();
+  </script>
+
   <!-- PixiJS CDN -->
   <script src="https://cdn.jsdelivr.net/npm/pixi.js@7/dist/pixi.min.js"></script>
   <!-- Matter.js CDN -->
@@ -56,6 +68,15 @@
         <button class="tb-btn" id="btn-load-scene" title="Load scene from JSON">📂 LOAD</button>
         <div class="tb-sep"></div>
         <button class="tb-btn" id="btn-mute" title="Mute Audio">🔊 AUDIO</button>
+        <div class="tb-sep"></div>
+        <label class="tb-snap-label" title="Color theme">
+          THEME
+          <select class="tb-select" id="sel-theme">
+            <option value="default" selected>Default</option>
+            <option value="dark">Dark</option>
+            <option value="light">Light</option>
+          </select>
+        </label>
       </nav>
       <div id="fps-counter">FPS: <span id="fps-value">0</span></div>
     </header>

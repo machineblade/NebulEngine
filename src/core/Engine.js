@@ -118,7 +118,7 @@ class Engine {
     this.app = new PIXI.Application({
       width:           W,
       height:          H,
-      backgroundColor: 0x080c10,
+      backgroundColor: this._readThemeColor('--canvas-bg', 0x080c10),
       antialias:       true,
       resolution:      window.devicePixelRatio || 1,
       autoDensity:     true,
@@ -134,6 +134,35 @@ class Engine {
     this._onResize();
 
     this.logger.success('PixiJS renderer started (' + W + 'x' + H + ')');
+  }
+
+  /**
+   * Parse a CSS custom property (e.g. `--canvas-bg: #080c10`) into a 24-bit
+   * integer Pixi understands. Falls back to `defaultHex` if the variable is
+   * missing or malformed. Supports `#rgb` and `#rrggbb`.
+   */
+  _readThemeColor (varName, defaultHex) {
+    const raw = getComputedStyle(document.documentElement)
+      .getPropertyValue(varName).trim();
+    if (!raw) return defaultHex;
+    let hex = raw.replace('#', '');
+    if (hex.length === 3) hex = hex.split('').map(c => c + c).join('');
+    if (hex.length !== 6) return defaultHex;
+    const n = parseInt(hex, 16);
+    return Number.isFinite(n) ? n : defaultHex;
+  }
+
+  /**
+   * Pull theme-dependent Pixi colors out of CSS variables and apply them to
+   * the renderer + grid. Called on boot and whenever the theme switches.
+   */
+  _applyThemeColors () {
+    const bg = this._readThemeColor('--canvas-bg', 0x080c10);
+    if (this.app?.renderer?.background) {
+      // Pixi v7 exposes .background.color
+      this.app.renderer.background.color = bg;
+    }
+    this._drawGrid();
   }
 
   _onResize () {
@@ -178,6 +207,27 @@ class Engine {
         this.logger.info('Snap: ' + (this._snapSize ? this._snapSize + ' px' : 'off'));
       });
     }
+
+    // Theme selector — Default / Dark / Light. Persisted to localStorage and
+    // applied to the document element; Pixi canvas bg + grid colors resync.
+    const themeSel = document.getElementById('sel-theme');
+    if (themeSel) {
+      const saved = (() => {
+        try { return localStorage.getItem('nebulengine.theme') || 'default'; }
+        catch (_) { return 'default'; }
+      })();
+      themeSel.value = ['default', 'dark', 'light'].includes(saved) ? saved : 'default';
+      document.documentElement.setAttribute('data-theme', themeSel.value);
+      this._applyThemeColors();
+
+      themeSel.addEventListener('change', () => {
+        const t = themeSel.value;
+        document.documentElement.setAttribute('data-theme', t);
+        try { localStorage.setItem('nebulengine.theme', t); } catch (_) {}
+        this._applyThemeColors();
+        this.logger.info('Theme: ' + t);
+      });
+    }
   }
 
   setActiveTool (tool) {
@@ -218,7 +268,9 @@ class Engine {
     const H = this.app.renderer.height / (window.devicePixelRatio || 1);
     // Span 2x the viewport so panning still shows grid.
     const span = Math.max(W, H) * 2;
-    g.lineStyle(1, 0x1e2d3d, 0.9);
+    const lineColor = this._readThemeColor('--grid-line', 0x1e2d3d);
+    const axisColor = this._readThemeColor('--grid-axis', 0x2e4d6d);
+    g.lineStyle(1, lineColor, 0.9);
     for (let x = -span; x <= span; x += step) {
       g.moveTo(x, -span); g.lineTo(x, span);
     }
@@ -226,7 +278,7 @@ class Engine {
       g.moveTo(-span, y); g.lineTo(span, y);
     }
     // Highlight the origin axes.
-    g.lineStyle(1, 0x2e4d6d, 1);
+    g.lineStyle(1, axisColor, 1);
     g.moveTo(0, -span); g.lineTo(0, span);
     g.moveTo(-span, 0); g.lineTo(span, 0);
   }
