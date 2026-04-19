@@ -357,6 +357,11 @@ class Engine {
   }
 
   _startGizmoDrag (axis, event) {
+    // Clicking a gizmo handle also fires the canvas pointerdown (PIXI's
+    // stopPropagation doesn't block the native DOM event), which would
+    // otherwise initiate a body-drag in parallel and have both handlers
+    // fight each other on pointermove. Cancel any pending body-drag.
+    this._bodyDrag = null;
     this._draggingGizmo   = true;
     this._dragAxis        = axis;
     this._dragStartPos.x  = event.data.global.x;
@@ -471,6 +476,9 @@ class Engine {
 
   // ── Body drag (free X+Y hold-click) ───────────────────────
   _onBodyDrag (event) {
+    // Belt-and-suspenders: if the gizmo picked up this gesture, bail out so
+    // we don't stack a free-drag on top of an axis/rotation drag.
+    if (this._draggingGizmo) { this._bodyDrag = null; return; }
     const drag   = this._bodyDrag;
     const entity = this.scene.getEntity(drag.id);
     if (!entity) { this._bodyDrag = null; return; }
