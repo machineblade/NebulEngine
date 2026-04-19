@@ -580,16 +580,52 @@ aside {
 }
 .insp-toggle-btn:hover { color: var(--accent); border-color: var(--accent); }
 
+.insp-btn-row {
+  display: flex;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.insp-action-btn,
 .insp-remove-btn {
   background: var(--bg-panel2);
   border: 1px solid var(--border-bright);
-  color: var(--red);
   font-family: var(--font-mono);
   font-size: 9px;
-  padding: 3px 8px;
+  padding: 4px 8px;
   cursor: pointer;
-  width: 100%;
-  margin-top: 6px;
-  transition: background 0.1s;
+  flex: 1;
+  transition: background 0.1s, color 0.1s, border-color 0.1s;
 }
-.insp-remove-btn:hover { background: var(--bg-hover); }
+.insp-action-btn { color: var(--accent); }
+.insp-action-btn:hover { background: var(--bg-hover); border-color: var(--accent); }
+.insp-remove-btn { color: var(--red); }
+.insp-remove-btn:hover { background: var(--bg-hover); border-color: var(--red); }
+
+/* Editable inspector inputs */
+.insp-input {
+  background: var(--bg-void);
+  border: 1px solid var(--border);
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  padding: 2px 5px;
+  width: 90px;
+  text-align: right;
+  transition: border-color 0.1s;
+}
+.insp-input:focus { outline: none; border-color: var(--accent); color: var(--accent); }
+.insp-input.insp-num { width: 72px; }
+.insp-input[data-field="name"] { width: 120px; text-align: left; }
+
+.insp-color {
+  width: 28px; height: 18px;
+  background: var(--bg-void);
+  border: 1px solid var(--border);
+  cursor: pointer;
+  padding: 0;
+}
+.insp-color::-webkit-color-swatch-wrapper { padding: 0; }
+.insp-color::-webkit-color-swatch { border: none; }
+
+.insp-check { cursor: pointer; accent-color: var(--accent); }

@@ -13,13 +13,18 @@ export class AudioManager {
 
   init () {
     if (this._initialized) return;
-    if (typeof Howler !== 'undefined' && typeof Howler.autoUnlock !== 'undefined') {
-      Howler.autoUnlock = true;
+    if (typeof Howl === 'undefined' || typeof Howler === 'undefined') {
+      // Howler CDN failed to load — degrade gracefully so the engine still runs.
+      this._unavailable = true;
+      this._initialized = true;
+      this.logger?.warn('Audio disabled — Howler.js failed to load');
+      return;
     }
+    Howler.autoUnlock = true;
     this._initSounds();
     this._initialized = true;
 
-    if (typeof Howler !== 'undefined' && Howler.ctx && Howler.ctx.state === 'suspended') {
+    if (Howler.ctx && Howler.ctx.state === 'suspended') {
       Howler.ctx.resume().catch(() => {});
     }
   }
@@ -64,29 +69,32 @@ export class AudioManager {
   // ── Public API ─────────────────────────────────────────────
   playAmbient () {
     this.init();
+    if (this._unavailable) return;
     const s = this._sounds.get('ambient');
     if (s && !s.playing()) s.play();
   }
 
   stopAmbient () {
-    if (!this._initialized) return;
+    if (!this._initialized || this._unavailable) return;
     this._sounds.get('ambient')?.stop();
   }
 
   playSfx (name) {
     this.init();
+    if (this._unavailable) return;
     const s = this._sounds.get(name);
     if (s) s.play();
   }
 
   stopAll () {
+    if (this._unavailable) return;
     for (const s of this._sounds.values()) s.stop();
   }
 
   toggleMute () {
     this.init();
     this._muted = !this._muted;
-    Howler.mute(this._muted);
+    if (!this._unavailable) Howler.mute(this._muted);
     return this._muted;
   }
 
