@@ -28,6 +28,21 @@ export class SceneManager {
   }
 
   /**
+   * Set the Matter world's vertical gravity. 0 = zero-G (default), 1 ≈ Earth.
+   * Per-entity `PhysicsComponent.gravity` still stacks on top; fixed bodies
+   * (isStatic) ignore gravity as Matter does by default.
+   */
+  setGravityY (y) {
+    if (!this._world) return;
+    const v = Number.isFinite(y) ? y : 0;
+    this._world.gravity.y = v;
+  }
+
+  getGravityY () {
+    return this._world ? this._world.gravity.y : 0;
+  }
+
+  /**
    * Bridge Matter collisionStart/End events into each entity's script hook.
    *   onCollide(selfEntity, otherEntity, pair)
    *   onSeparate(selfEntity, otherEntity, pair)
