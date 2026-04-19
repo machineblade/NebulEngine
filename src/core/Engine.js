@@ -184,9 +184,47 @@ class Engine {
     document.getElementById('btn-clear').addEventListener('click', () => this._clearScene());
     document.getElementById('btn-mute') .addEventListener('click', () => this._toggleAudio());
 
-    // Save / Load scene JSON
+    // Save / Load scene JSON — now surfaced through the hamburger menu,
+    // but the ids are preserved so external handlers keep working.
     document.getElementById('btn-save-scene')?.addEventListener('click', () => this._saveScene());
     document.getElementById('btn-load-scene')?.addEventListener('click', () => this._loadScene());
+
+    // Hamburger: toggle open/close; click-outside closes.
+    const burger = document.getElementById('btn-hamburger');
+    const menu   = document.getElementById('hamburger-menu');
+    if (burger && menu) {
+      const setOpen = (open) => {
+        burger.classList.toggle('open', open);
+        menu   .classList.toggle('open', open);
+        burger.setAttribute('aria-expanded', String(open));
+        menu  .setAttribute('aria-hidden',   String(!open));
+      };
+      burger.addEventListener('click', (e) => {
+        e.stopPropagation();
+        setOpen(!menu.classList.contains('open'));
+      });
+      document.addEventListener('click', (e) => {
+        if (!menu.classList.contains('open')) return;
+        if (menu.contains(e.target) || burger.contains(e.target)) return;
+        setOpen(false);
+      });
+      document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape' && menu.classList.contains('open')) setOpen(false);
+      });
+    }
+
+    // Save As expander: reveal the Export button inside the hamburger menu.
+    const saveTog = document.getElementById('hm-save-toggle');
+    const saveSub = document.getElementById('hm-save-sub');
+    if (saveTog && saveSub) {
+      saveTog.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const open = saveSub.hasAttribute('hidden');
+        if (open) saveSub.removeAttribute('hidden');
+        else      saveSub.setAttribute('hidden', '');
+        saveTog.setAttribute('aria-expanded', String(open));
+      });
+    }
   }
 
   // ── Tool / Grid Toolbar ──────────────────────────────────
@@ -1032,7 +1070,13 @@ class Engine {
 
   _toggleAudio () {
     const muted = this.audio.toggleMute();
-    document.getElementById('btn-mute').textContent = muted ? '🔇 MUTED' : '🔊 AUDIO';
+    const btn   = document.getElementById('btn-mute');
+    if (btn) {
+      const iconEl  = btn.querySelector('.hm-icon');
+      const stateEl = btn.querySelector('.hm-state');
+      if (iconEl)  iconEl .textContent = muted ? '🔇'    : '🔊';
+      if (stateEl) stateEl.textContent = muted ? 'MUTED' : 'ON';
+    }
     this.logger.info('Audio ' + (muted ? 'muted' : 'unmuted'));
   }
 
