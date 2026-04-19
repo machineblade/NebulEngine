@@ -78,6 +78,9 @@ export class UIBridge {
       line.style.display = 'none';
     }
     el.appendChild(line);
+    // Cap the panel so very chatty scenes don't leak DOM nodes forever.
+    const MAX_LINES = 200;
+    while (el.childElementCount > MAX_LINES) el.removeChild(el.firstChild);
     el.scrollTop = el.scrollHeight;
   }
 
@@ -262,11 +265,14 @@ export class UIBridge {
     this.ph = entity.getComponent('physics');
   },
   onUpdate(entity, dt, elapsed, bounds) {
-    // ph.rotate(speed, dt)  — spin using physics angular velocity
-    // ph.setRotationSpeed(rad/s) — set a continuous spin once
+    // ph.rotate(speed, dt)         — spin using physics angular velocity
+    // ph.setRotationSpeed(rad/s)   — set a continuous spin once
     // Matter.Body.setVelocity(ph.body, {x, y}) — set velocity
-    // ph.applyForce(fx, fy, dt) — push the body
-    // ph.enabled = false — freeze physics
+    // ph.applyForce(fx, fy, dt)    — push the body
+    // ph.enabled = false           — freeze physics
+    // ph.anchored = true           — lock the body in place (stronger than fixed)
+    // ph.gravity.enabled = false   — ignore world + local gravity
+    // ph.gravity.force   = 5       — extra per-entity gravity force
     if (this.ph) this.ph.rotate(2, dt);
   }
 })`;
@@ -600,7 +606,12 @@ export class UIBridge {
     const spd    = ph ? ph.speed() : 0;
     const mass   = ph ? (ph.body?.mass ?? 'n/a')    : 'n/a';
     const drag   = ph ? ph.frictionAir.toFixed(3)   : 'n/a';
-    const grav   = ph ? ph.gravity                  : 'n/a';
+    const gravObj  = ph && ph.gravity && typeof ph.gravity === 'object'
+      ? ph.gravity
+      : { enabled: true, force: (typeof ph?.gravity === 'number' ? ph.gravity : 0) };
+    const gravEn   = gravObj.enabled !== false;
+    const gravForce = Number.isFinite(gravObj.force) ? gravObj.force : 0;
+    const anchored = ph ? !!ph.anchored             : false;
     const phEn   = ph ? ph.enabled                  : false;
 
     const rotDeg = spr && Number.isFinite(spr.rotation) ? (spr.rotation * 180 / Math.PI).toFixed(1) : '0';
@@ -645,6 +656,9 @@ export class UIBridge {
           <button class="insp-toggle-btn" id="insp-toggle-physics">${phEn ? '⏸ Disable' : '▶ Enable'}</button>
         </div>
         <div class="insp-row"><span class="insp-label">Enabled</span><span class="insp-value" style="color:${phEn ? 'var(--green)' : 'var(--red)'}">${phEn}</span></div>
+        <div class="insp-row"><span class="insp-label">Anchored</span>
+          <input class="insp-check" data-field="anchored" type="checkbox" ${anchored ? 'checked' : ''} title="Locks position/rotation; freezes all motion" />
+        </div>
         <div class="insp-row"><span class="insp-label">Fixed</span>
           <input class="insp-check" data-field="fixed" type="checkbox" ${ph.fixed ? 'checked' : ''} />
         </div>
@@ -659,7 +673,10 @@ export class UIBridge {
           <input class="insp-input insp-num" data-field="restitution" type="number" step="0.05" min="0" max="2" value="${ph.restitution.toFixed(2)}" />
         </div>
         <div class="insp-row"><span class="insp-label">Gravity</span>
-          <input class="insp-input insp-num" data-field="gravity" type="number" step="10" value="${ph.gravity}" />
+          <input class="insp-check" data-field="gravityEnabled" type="checkbox" ${gravEn ? 'checked' : ''} title="When off, entity ignores both world and local gravity" />
+        </div>
+        <div class="insp-row"><span class="insp-label">⤷ Force</span>
+          <input class="insp-input insp-num" data-field="gravityForce" type="number" step="10" value="${gravForce}" ${gravEn ? '' : 'disabled'} />
         </div>
       </div>` : ''}
 
@@ -768,7 +785,20 @@ export class UIBridge {
       case 'fixed': {
         if (!ph?.body) break;
         ph.fixed = !!raw;
-        Matter.Body.setStatic(ph.body, ph.fixed);
+        if (!ph.anchored) Matter.Body.setStatic(ph.body, ph.fixed);
+        break;
+      }
+      case 'anchored': {
+        if (!ph?.body) break;
+        ph.anchored = !!raw;
+        // The PhysicsComponent.update() loop picks up the change and calls
+        // setStatic itself, but we nudge it here so it's visible before PLAY.
+        const shouldStatic = ph.anchored || ph.fixed;
+        if (ph.body.isStatic !== shouldStatic) Matter.Body.setStatic(ph.body, shouldStatic);
+        if (ph.anchored) {
+          Matter.Body.setVelocity(ph.body, { x: 0, y: 0 });
+          Matter.Body.setAngularVelocity(ph.body, 0);
+        }
         break;
       }
       case 'frictionAir': case 'restitution': {
@@ -778,10 +808,24 @@ export class UIBridge {
         ph.body[field] = v;
         break;
       }
-      case 'gravity': {
+      case 'gravityEnabled': {
+        if (!ph) break;
+        if (typeof ph.gravity !== 'object' || ph.gravity === null) {
+          ph.gravity = { enabled: true, force: typeof ph.gravity === 'number' ? ph.gravity : 0 };
+        }
+        ph.gravity.enabled = !!raw;
+        if (ph.body) ph.body.gravityScale = ph.gravity.enabled ? 1 : 0;
+        // Re-render so the Force input's disabled state updates.
+        this._renderInspector(id);
+        break;
+      }
+      case 'gravityForce': {
         if (!ph) break;
         const v = parseFloat(raw); if (!Number.isFinite(v)) break;
-        ph.gravity = v;
+        if (typeof ph.gravity !== 'object' || ph.gravity === null) {
+          ph.gravity = { enabled: true, force: 0 };
+        }
+        ph.gravity.force = v;
         break;
       }
     }
