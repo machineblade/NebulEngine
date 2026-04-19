@@ -503,54 +503,70 @@ class Engine {
     arrowY.on('pointerup',      ()  => this._stopGizmoDrag());
     arrowY.on('pointerupoutside', () => this._stopGizmoDrag());
 
-    // Rotation handle — an orange ring sitting above the entity. Drag it
-    // to rotate. Offset by the entity's bounding radius at render time.
+    // Rotation ring — a red circle around the sprite that visualises the
+    // rotation axis. Non-interactive itself; the draggable handle is the
+    // red dot below.
+    const rotRing = new PIXI.Graphics();
+    rotRing.interactive = false;
+
+    // Rotation handle — a filled red dot that rides the ring at the
+    // sprite's current rotation. Dragging it rotates the sprite.
     const rotHandle = new PIXI.Graphics();
-    rotHandle.lineStyle(2, 0xff9c27, 1);
-    rotHandle.beginFill(0x000000, 0.001);  // invisible fill so it's hittable
-    rotHandle.drawCircle(0, -80, 8);
+    rotHandle.lineStyle(2, 0xff2b2b, 1);
+    rotHandle.beginFill(0xff2b2b, 1);
+    rotHandle.drawCircle(0, 0, 7);
     rotHandle.endFill();
-    rotHandle.lineStyle(2, 0xff9c27, 0.5);
-    rotHandle.moveTo(0, 0); rotHandle.lineTo(0, -72);
-    rotHandle.interactive = true; rotHandle.cursor = 'crosshair';
-    rotHandle.hitArea = new PIXI.Circle(0, -80, 12);
+    rotHandle.interactive = true; rotHandle.cursor = 'grab';
+    rotHandle.hitArea = new PIXI.Circle(0, 0, 12);
     rotHandle.on('pointerdown',    (e) => this._startGizmoDrag('rot', e));
     rotHandle.on('pointerup',      ()  => this._stopGizmoDrag());
     rotHandle.on('pointerupoutside', () => this._stopGizmoDrag());
 
-    // Scale handles — four small green squares at the sprite's bounding-box
-    // corners. Dragging a corner scales the sprite uniformly based on the
-    // distance from the sprite center vs. the corner's original distance.
-    const makeScaleHandle = (sx, sy, id) => {
+    // Scale handles — green outlined squares.
+    //  - Corner handles (tl/tr/bl/br): uniform scale (Shift = non-uniform).
+    //  - Edge handles   (e/w):         X-only scale.
+    //  - Edge handles   (n/s):         Y-only scale.
+    const makeScaleHandle = (id, cursor) => {
       const h = new PIXI.Graphics();
       h.lineStyle(2, 0x39ff85, 1);
       h.beginFill(0x0d1117, 1);
       h.drawRect(-5, -5, 10, 10);
       h.endFill();
-      h.interactive = true; h.cursor = 'nwse-resize';
+      h.interactive = true; h.cursor = cursor;
       h.hitArea = new PIXI.Rectangle(-8, -8, 16, 16);
-      h._scaleSign = { sx, sy };
       h.on('pointerdown',    (e) => this._startGizmoDrag('scale:' + id, e));
       h.on('pointerup',      ()  => this._stopGizmoDrag());
       h.on('pointerupoutside', () => this._stopGizmoDrag());
       return h;
     };
-    const scaleTL = makeScaleHandle(-1, -1, 'tl');
-    const scaleTR = makeScaleHandle( 1, -1, 'tr');
-    const scaleBL = makeScaleHandle(-1,  1, 'bl');
-    const scaleBR = makeScaleHandle( 1,  1, 'br');
+    const scaleTL = makeScaleHandle('tl', 'nwse-resize');
+    const scaleTR = makeScaleHandle('tr', 'nesw-resize');
+    const scaleBL = makeScaleHandle('bl', 'nesw-resize');
+    const scaleBR = makeScaleHandle('br', 'nwse-resize');
+    const scaleE  = makeScaleHandle('e',  'ew-resize');
+    const scaleW  = makeScaleHandle('w',  'ew-resize');
+    const scaleN  = makeScaleHandle('n',  'ns-resize');
+    const scaleS  = makeScaleHandle('s',  'ns-resize');
 
     this._gizmo.addChild(arrowX);
     this._gizmo.addChild(arrowY);
+    this._gizmo.addChild(rotRing);
     this._gizmo.addChild(rotHandle);
     this._gizmo.addChild(scaleTL);
     this._gizmo.addChild(scaleTR);
     this._gizmo.addChild(scaleBL);
     this._gizmo.addChild(scaleBR);
+    this._gizmo.addChild(scaleE);
+    this._gizmo.addChild(scaleW);
+    this._gizmo.addChild(scaleN);
+    this._gizmo.addChild(scaleS);
 
     this._gizmoParts = {
-      arrowX, arrowY, rotHandle,
-      scale: { tl: scaleTL, tr: scaleTR, bl: scaleBL, br: scaleBR },
+      arrowX, arrowY, rotRing, rotHandle,
+      scale: {
+        tl: scaleTL, tr: scaleTR, bl: scaleBL, br: scaleBR,
+        e:  scaleE,  w:  scaleW,  n:  scaleN,  s:  scaleS,
+      },
     };
 
     this._gizmo.visible = false;
@@ -569,14 +585,38 @@ class Engine {
     const tool = this._activeTool;
     parts.arrowX.visible    = tool === 'move';
     parts.arrowY.visible    = tool === 'move';
+    parts.rotRing.visible   = tool === 'rotate';
     parts.rotHandle.visible = tool === 'rotate';
 
     const { hx, hy } = sprite.halfExtents();
-    const corners = parts.scale;
-    corners.tl.position.set(-hx, -hy); corners.tl.visible = tool === 'scale';
-    corners.tr.position.set( hx, -hy); corners.tr.visible = tool === 'scale';
-    corners.bl.position.set(-hx,  hy); corners.bl.visible = tool === 'scale';
-    corners.br.position.set( hx,  hy); corners.br.visible = tool === 'scale';
+
+    // Rotation ring — always circular, radius clears the bounding box + a
+    // small margin. Handle dot sits on the ring at the current angle
+    // (`sprite.rotation = 0` puts the dot directly above the sprite).
+    if (tool === 'rotate') {
+      const ringR = Math.max(hx, hy) + 24;
+      const ring  = parts.rotRing;
+      ring.clear();
+      ring.lineStyle(2, 0xff2b2b, 0.9);
+      ring.drawCircle(0, 0, ringR);
+      // Tick from center to handle so it's obvious which way is "up".
+      ring.lineStyle(1, 0xff2b2b, 0.35);
+      const hx0 = Math.cos(sprite.rotation - Math.PI / 2) * ringR;
+      const hy0 = Math.sin(sprite.rotation - Math.PI / 2) * ringR;
+      ring.moveTo(0, 0); ring.lineTo(hx0, hy0);
+      parts.rotHandle.position.set(hx0, hy0);
+    }
+
+    const s = parts.scale;
+    const showScale = tool === 'scale';
+    s.tl.position.set(-hx, -hy); s.tl.visible = showScale;
+    s.tr.position.set( hx, -hy); s.tr.visible = showScale;
+    s.bl.position.set(-hx,  hy); s.bl.visible = showScale;
+    s.br.position.set( hx,  hy); s.br.visible = showScale;
+    s.e .position.set( hx,  0);  s.e .visible = showScale;
+    s.w .position.set(-hx,  0);  s.w .visible = showScale;
+    s.n .position.set(  0, -hy); s.n .visible = showScale;
+    s.s .position.set(  0,  hy); s.s .visible = showScale;
   }
 
   setSelectedEntity (id) {
@@ -693,8 +733,13 @@ class Engine {
     }
 
     if (this._dragAxis?.startsWith('scale:')) {
-      const corner = this._dragAxis.slice(6);                  // tl | tr | bl | br
-      const sign = { tl: [-1,-1], tr: [ 1,-1], bl: [-1, 1], br: [ 1, 1] }[corner];
+      const handle = this._dragAxis.slice(6);                  // tl/tr/bl/br/e/w/n/s
+      // Sign table: which direction the handle pulls along each local axis.
+      // 0 means "this axis isn't driven by this handle".
+      const signs = {
+        tl: [-1,-1], tr: [ 1,-1], bl: [-1, 1], br: [ 1, 1],
+        e:  [ 1, 0], w:  [-1, 0], n:  [ 0,-1], s:  [ 0, 1],
+      }[handle];
       // Cursor in stage space, translated into sprite-local (rotation-compensated).
       const world = this._screenToStage(currentX, currentY);
       const dx = world.x - sprite.x;
@@ -707,15 +752,27 @@ class Engine {
       const isRect = sprite.shape === 'rect' || sprite.shape === 'square' || sprite.shape === 'rsquare';
       const baseHx = isRect ? sprite.w / 2 : sprite.r;
       const baseHy = isRect ? sprite.h / 2 : sprite.r;
-      let nx = (localX * sign[0]) / baseHx;
-      let ny = (localY * sign[1]) / baseHy;
-      // Uniform scale unless Shift is held (Shift = non-uniform).
-      if (!event.shiftKey) {
-        const uni = Math.max(Math.abs(nx), Math.abs(ny));
+      // Target half-extent in pixels (snap when snap is active).
+      const step   = this._snapStep(event);
+      let targetHx = signs[0] !== 0 ? Math.abs(localX) : baseHx * this._dragEntityStart.sx;
+      let targetHy = signs[1] !== 0 ? Math.abs(localY) : baseHy * this._dragEntityStart.sy;
+      if (step > 0) {
+        if (signs[0] !== 0) targetHx = Math.max(step / 2, Math.round(targetHx / (step / 2)) * (step / 2));
+        if (signs[1] !== 0) targetHy = Math.max(step / 2, Math.round(targetHy / (step / 2)) * (step / 2));
+      }
+      let nx = targetHx / baseHx;
+      let ny = targetHy / baseHy;
+      // Corner drag: uniform scale unless Shift is held (Shift = non-uniform).
+      const isCorner = handle === 'tl' || handle === 'tr' || handle === 'bl' || handle === 'br';
+      if (isCorner && !event.shiftKey) {
+        const uni = Math.max(nx, ny);
         nx = ny = uni;
       }
-      sprite.scaleX = Math.max(0.05, Math.abs(nx));
-      sprite.scaleY = Math.max(0.05, Math.abs(ny));
+      sprite.scaleX = Math.max(0.05, nx);
+      sprite.scaleY = Math.max(0.05, ny);
+      // Visual-only scale: the Matter body is sized from sprite.w/h/r at
+      // creation and is never re-scaled here, so the collision hull stays at
+      // its original dimensions.
       sprite.syncGraphics();
       this._layoutGizmoHandles(sprite);
       this.events.emit('ui:inspectorDirty', entity.id);
