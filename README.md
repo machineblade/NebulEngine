@@ -113,6 +113,9 @@ floating editor window for that script. Each window is:
 Multiple script windows can be open at once; clicking any window brings it
 to the front.
 
+**Rename** a script with `F2` (while it is the active script) or by
+right-clicking the card. Double-click is reserved for opening the window.
+
 ### Collision hooks
 
 Scripts can react to Matter.js contacts via two optional methods:
