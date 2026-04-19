@@ -16,7 +16,7 @@ import { ScriptComponent }  from '../entity/ScriptComponent.js';
 
 class Engine {
   constructor () {
-    this.version    = '1.1.0';
+    this.version    = '1.2.0';
     this.running    = false;
     this.paused     = false;
     this.elapsed    = 0;
@@ -31,6 +31,17 @@ class Engine {
     this._panning   = false;
     this._panStart  = { mx: 0, my: 0, vx: 0, vy: 0 };
     this._gridSize  = 20;
+
+    // Undo / redo history and the play-time transform snapshot (so STOP can
+    // revert edits made during PLAY back to their edit-time values).
+    this._history      = [];
+    this._historyIndex = -1;
+    this._historyCap   = 50;
+    this._playSnapshot = null;
+
+    // "Body drag" — click-and-hold anywhere on an entity to free-drag it
+    // along both axes without needing the gizmo arrows.
+    this._bodyDrag = null;
 
     // core systems
     this.events  = new EventBus();
@@ -152,20 +163,45 @@ class Engine {
 
       const world  = this._screenToStage(sx, sy);
       const entity = this.scene.hitTest(world.x, world.y);
-      if (entity) this.setSelectedEntity(entity.id);
-      else        this.setSelectedEntity(null);
+      if (entity) {
+        this.setSelectedEntity(entity.id);
+        // Start a body-drag: hold left mouse on the entity and move to drag
+        // in X+Y at once. A small dead-zone avoids promoting a plain click
+        // into a drag. The original x/y is kept so STOP-time revert and
+        // undo can restore it.
+        if (event.button === 0) {
+          const spr = entity.getComponent('sprite');
+          if (spr) {
+            this._bodyDrag = {
+              id:       entity.id,
+              startSx:  event.clientX,
+              startSy:  event.clientY,
+              startX:   spr.x,
+              startY:   spr.y,
+              moved:    false,
+            };
+          }
+        }
+      } else {
+        this.setSelectedEntity(null);
+      }
     });
 
     window.addEventListener('pointermove', (event) => {
-      if (!this._panning) return;
-      this._view.x = this._panStart.vx + (event.clientX - this._panStart.mx);
-      this._view.y = this._panStart.vy + (event.clientY - this._panStart.my);
-      this._applyView();
+      if (this._panning) {
+        this._view.x = this._panStart.vx + (event.clientX - this._panStart.mx);
+        this._view.y = this._panStart.vy + (event.clientY - this._panStart.my);
+        this._applyView();
+        return;
+      }
+      if (this._bodyDrag) this._onBodyDrag(event);
     });
     window.addEventListener('pointerup', () => {
-      if (!this._panning) return;
-      this._panning = false;
-      canvas.style.cursor = 'pointer';
+      if (this._panning) {
+        this._panning = false;
+        canvas.style.cursor = 'pointer';
+      }
+      if (this._bodyDrag) this._endBodyDrag();
     });
 
     // Wheel zoom, centered on the mouse position so content stays put.
@@ -222,6 +258,19 @@ class Engine {
         return;
       }
 
+      // Ctrl/Cmd+Z — undo,  Ctrl/Cmd+Shift+Z / Ctrl/Cmd+Y — redo.
+      if ((event.ctrlKey || event.metaKey) && event.code === 'KeyZ') {
+        event.preventDefault();
+        if (event.shiftKey) this.redo();
+        else                this.undo();
+        return;
+      }
+      if ((event.ctrlKey || event.metaKey) && event.code === 'KeyY') {
+        event.preventDefault();
+        this.redo();
+        return;
+      }
+
       // Escape — deselect.
       if (event.code === 'Escape') {
         this.setSelectedEntity(null);
@@ -265,8 +314,24 @@ class Engine {
     arrowY.on('pointerup',      ()  => this._stopGizmoDrag());
     arrowY.on('pointerupoutside', () => this._stopGizmoDrag());
 
+    // Rotation handle — an orange ring sitting above the entity. Drag it
+    // to rotate. Offset by the entity's bounding radius at render time.
+    const rotHandle = new PIXI.Graphics();
+    rotHandle.lineStyle(2, 0xff9c27, 1);
+    rotHandle.beginFill(0x000000, 0.001);  // invisible fill so it's hittable
+    rotHandle.drawCircle(0, -80, 8);
+    rotHandle.endFill();
+    rotHandle.lineStyle(2, 0xff9c27, 0.5);
+    rotHandle.moveTo(0, 0); rotHandle.lineTo(0, -72);
+    rotHandle.interactive = true; rotHandle.cursor = 'crosshair';
+    rotHandle.hitArea = new PIXI.Circle(0, -80, 12);
+    rotHandle.on('pointerdown',    (e) => this._startGizmoDrag('rot', e));
+    rotHandle.on('pointerup',      ()  => this._stopGizmoDrag());
+    rotHandle.on('pointerupoutside', () => this._stopGizmoDrag());
+
     this._gizmo.addChild(arrowX);
     this._gizmo.addChild(arrowY);
+    this._gizmo.addChild(rotHandle);
     this._gizmo.visible = false;
     this._gizmo.zIndex  = 999;
     this.stage.addChild(this._gizmo);
@@ -299,27 +364,76 @@ class Engine {
     const entity = this.scene.getEntity(this._selectedEntityId);
     if (entity) {
       const sprite = entity.getComponent('sprite');
-      if (sprite) { this._dragEntityStart.x = sprite.x; this._dragEntityStart.y = sprite.y; }
+      if (sprite) {
+        this._dragEntityStart.x = sprite.x;
+        this._dragEntityStart.y = sprite.y;
+        this._dragEntityStart.rot = sprite.rotation;
+      }
     }
     event.stopPropagation();
   }
 
-  _stopGizmoDrag () { this._draggingGizmo = false; this._dragAxis = null; }
+  _stopGizmoDrag () {
+    if (!this._draggingGizmo) return;
+    // Record a single undo entry per drag gesture
+    const entity = this.scene.getEntity(this._selectedEntityId);
+    const sprite = entity?.getComponent('sprite');
+    if (entity && sprite) {
+      if (this._dragAxis === 'rot') {
+        if (sprite.rotation !== this._dragEntityStart.rot) {
+          this._recordHistory({
+            kind: 'transform',
+            id:   entity.id,
+            from: { rotation: this._dragEntityStart.rot },
+            to:   { rotation: sprite.rotation },
+          });
+        }
+      } else if (sprite.x !== this._dragEntityStart.x || sprite.y !== this._dragEntityStart.y) {
+        this._recordHistory({
+          kind: 'transform',
+          id:   entity.id,
+          from: { x: this._dragEntityStart.x, y: this._dragEntityStart.y },
+          to:   { x: sprite.x, y: sprite.y },
+        });
+      }
+    }
+    this._draggingGizmo = false;
+    this._dragAxis      = null;
+  }
 
   _onGizmoDrag (event) {
     if (!this._draggingGizmo || !this._dragAxis) return;
-    // Convert screen-space deltas to world-space deltas through the viewport zoom.
-    const scale    = this._view.scale || 1;
-    const rect    = this.app.view.getBoundingClientRect();
-    const currentX = event.clientX - rect.left;
-    const currentY = event.clientY - rect.top;
-    const deltaX   = (currentX - this._dragStartPos.x) / scale;
-    const deltaY   = (currentY - this._dragStartPos.y) / scale;
-    const entity   = this.scene.getEntity(this._selectedEntityId);
+    const entity  = this.scene.getEntity(this._selectedEntityId);
     if (!entity) return;
     const sprite  = entity.getComponent('sprite');
     const physics = entity.getComponent('physics');
     if (!sprite) return;
+
+    const scale    = this._view.scale || 1;
+    const rect     = this.app.view.getBoundingClientRect();
+    const currentX = event.clientX - rect.left;
+    const currentY = event.clientY - rect.top;
+
+    if (this._dragAxis === 'rot') {
+      // Rotate the entity so the handle follows the cursor, in world space.
+      const world = this._screenToStage(currentX, currentY);
+      let ang = Math.atan2(world.y - sprite.y, world.x - sprite.x);
+      // Handle offset: 0 rotation should have the handle straight up, so
+      // translate cursor-angle (east-up) into sprite-angle (north-up).
+      ang += Math.PI / 2;
+      if (event.shiftKey) ang = Math.round(ang / (Math.PI / 12)) * (Math.PI / 12);  // 15°
+      sprite.rotation = ang;
+      if (physics?.body) Matter.Body.setAngle(physics.body, ang);
+      sprite.syncGraphics();
+      this._gizmo.position.set(sprite.x, sprite.y);
+      this._gizmo.rotation = this._localSpace ? sprite.rotation : 0;
+      this.events.emit('ui:inspectorDirty', entity.id);
+      return;
+    }
+
+    // Translation — convert screen-space deltas to world-space through zoom.
+    const deltaX = (currentX - this._dragStartPos.x) / scale;
+    const deltaY = (currentY - this._dragStartPos.y) / scale;
 
     let newX = this._dragEntityStart.x;
     let newY = this._dragEntityStart.y;
@@ -334,21 +448,82 @@ class Engine {
       else                        newY += deltaY;
     }
 
-    // Hold Shift to snap-to-grid while dragging.
+    // Hold Shift to snap-to-grid. Only snap the axis being dragged when in
+    // global mode, otherwise a Y-axis drag on a non-grid X would yank the
+    // entity sideways.
     if (event.shiftKey) {
-      newX = this._snap(newX, true);
-      newY = this._snap(newY, true);
+      if (this._localSpace) {
+        newX = this._snap(newX, true);
+        newY = this._snap(newY, true);
+      } else if (this._dragAxis === 'x') {
+        newX = this._snap(newX, true);
+      } else {
+        newY = this._snap(newY, true);
+      }
     }
 
     sprite.x = newX; sprite.y = newY;
     if (physics?.body) Matter.Body.setPosition(physics.body, { x: newX, y: newY });
+    sprite.syncGraphics();
     this._gizmo.position.set(newX, newY);
+    this.events.emit('ui:inspectorDirty', entity.id);
+  }
+
+  // ── Body drag (free X+Y hold-click) ───────────────────────
+  _onBodyDrag (event) {
+    const drag   = this._bodyDrag;
+    const entity = this.scene.getEntity(drag.id);
+    if (!entity) { this._bodyDrag = null; return; }
+    const sprite  = entity.getComponent('sprite');
+    const physics = entity.getComponent('physics');
+    if (!sprite) return;
+
+    const scale = this._view.scale || 1;
+    const dSx = event.clientX - drag.startSx;
+    const dSy = event.clientY - drag.startSy;
+    if (!drag.moved && Math.hypot(dSx, dSy) < 3) return;   // dead-zone
+    drag.moved = true;
+
+    let newX = drag.startX + dSx / scale;
+    let newY = drag.startY + dSy / scale;
+    if (event.shiftKey) { newX = this._snap(newX, true); newY = this._snap(newY, true); }
+
+    sprite.x = newX; sprite.y = newY;
+    if (physics?.body) {
+      Matter.Body.setPosition(physics.body, { x: newX, y: newY });
+      // Stop the body so the drag doesn't fight the solver mid-play.
+      Matter.Body.setVelocity(physics.body, { x: 0, y: 0 });
+    }
+    sprite.syncGraphics();
+    if (this._gizmo) this._gizmo.position.set(newX, newY);
+    this.events.emit('ui:inspectorDirty', entity.id);
+  }
+
+  _endBodyDrag () {
+    const drag = this._bodyDrag;
+    this._bodyDrag = null;
+    if (!drag || !drag.moved) return;
+    const entity = this.scene.getEntity(drag.id);
+    const sprite = entity?.getComponent('sprite');
+    if (!entity || !sprite) return;
+    if (sprite.x !== drag.startX || sprite.y !== drag.startY) {
+      this._recordHistory({
+        kind: 'transform',
+        id:   drag.id,
+        from: { x: drag.startX, y: drag.startY },
+        to:   { x: sprite.x,    y: sprite.y },
+      });
+    }
   }
 
   // ── Lifecycle ──────────────────────────────────────────────
   play () {
     if (this.running && !this.paused) return;
     if (this.paused) { this.paused = false; this._updateEditorState(); return; }
+
+    // Capture a snapshot of the scene so STOP can revert any edits (position,
+    // rotation, physics) made while the simulation was running.
+    this._playSnapshot = this._captureScene();
 
     this.running  = true;
     this.paused   = false;
@@ -377,12 +552,16 @@ class Engine {
     cancelAnimationFrame(this._rafId);
     this.scene.reset();
     this.elapsed = 0;
+    // Revert every entity to the state it held at the moment Play was
+    // pressed — position, rotation, alpha, color, and physics config.
+    if (this._playSnapshot) {
+      this._restoreScene(this._playSnapshot);
+      this._playSnapshot = null;
+    }
     this._updateEditorState();
     this.events.emit('engine:stop');
     this.audio.stopAll();
-    this.logger.info('Scene stopped');
-    // Note: stopping preserves the current scene. Use the CLEAR button to
-    // empty it, or LOAD to swap in a saved scene.
+    this.logger.info('Scene stopped — reverted to edit-time state');
   }
 
   // ── Main Loop ──────────────────────────────────────────────
@@ -498,16 +677,17 @@ class Engine {
     const ph  = src.getComponent('physics');
     if (!spr) return;
     const cfg = {
-      name:  src.name + '_copy',
-      tags:  [...src.tags],
-      color: spr.color,
-      shape: spr.shape,
-      x:     spr.x + 24,
-      y:     spr.y + 24,
-      r:     spr.r,
-      w:     spr.w,
-      h:     spr.h,
-      alpha: spr.alpha,
+      name:     src.name + '_copy',
+      tags:     [...src.tags],
+      color:    spr.color,
+      shape:    spr.shape,
+      x:        spr.x + 24,
+      y:        spr.y + 24,
+      rotation: spr.rotation,
+      r:        spr.r,
+      w:        spr.w,
+      h:        spr.h,
+      alpha:    spr.alpha,
       physics: ph ? {
         restitution: ph.restitution,
         friction:    ph.friction,
@@ -523,6 +703,104 @@ class Engine {
     this.audio.playSfx('spawn');
     this.setSelectedEntity(dup.id);
     this.logger.info('Duplicated: ' + dup.name);
+  }
+
+  // ── Undo / Redo ────────────────────────────────────────────
+  _recordHistory (entry) {
+    // Drop any "future" redo branch whenever a new action is recorded.
+    if (this._historyIndex < this._history.length - 1) {
+      this._history.length = this._historyIndex + 1;
+    }
+    this._history.push(entry);
+    if (this._history.length > this._historyCap) {
+      this._history.shift();
+    } else {
+      this._historyIndex = this._history.length - 1;
+    }
+  }
+
+  _applyTransform (id, t) {
+    const entity = this.scene.getEntity(id);
+    if (!entity) return;
+    const sprite  = entity.getComponent('sprite');
+    const physics = entity.getComponent('physics');
+    if (!sprite) return;
+    if (t.x !== undefined) sprite.x = t.x;
+    if (t.y !== undefined) sprite.y = t.y;
+    if (t.rotation !== undefined) sprite.rotation = t.rotation;
+    if (physics?.body) {
+      if (t.x !== undefined || t.y !== undefined) {
+        Matter.Body.setPosition(physics.body, { x: sprite.x, y: sprite.y });
+        Matter.Body.setVelocity(physics.body, { x: 0, y: 0 });
+      }
+      if (t.rotation !== undefined) Matter.Body.setAngle(physics.body, sprite.rotation);
+    }
+    sprite.syncGraphics();
+    this.events.emit('ui:inspectorDirty', id);
+  }
+
+  undo () {
+    if (this._historyIndex < 0) { this.logger.info('Nothing to undo'); return; }
+    const entry = this._history[this._historyIndex--];
+    if (entry.kind === 'transform') this._applyTransform(entry.id, entry.from);
+    this.logger.info('Undo: ' + entry.kind);
+  }
+
+  redo () {
+    if (this._historyIndex >= this._history.length - 1) { this.logger.info('Nothing to redo'); return; }
+    const entry = this._history[++this._historyIndex];
+    if (entry.kind === 'transform') this._applyTransform(entry.id, entry.to);
+    this.logger.info('Redo: ' + entry.kind);
+  }
+
+  // ── Play-time snapshot ────────────────────────────────────
+  _captureScene () {
+    // Minimal snapshot sufficient to rebuild the scene as it looked when
+    // Play was pressed: sprite transform + physics config. Scripts are
+    // preserved in-place (they don't need to rebuild on stop).
+    return this.scene.getAllEntities().map(e => ({
+      id:   e.id,
+      name: e.name,
+      tags: [...e.tags],
+      sprite:  e.getComponent('sprite')?.toJSON() ?? null,
+      physics: e.getComponent('physics')?.toJSON() ?? null,
+    }));
+  }
+
+  _restoreScene (snap) {
+    for (const rec of snap) {
+      const entity = this.scene.getEntity(rec.id);
+      if (!entity) continue;
+      const sprite  = entity.getComponent('sprite');
+      const physics = entity.getComponent('physics');
+      if (sprite && rec.sprite) {
+        sprite.x        = rec.sprite.x;
+        sprite.y        = rec.sprite.y;
+        sprite.rotation = rec.sprite.rotation;
+        if (rec.sprite.alpha !== undefined) sprite.setAlpha(rec.sprite.alpha);
+        if (rec.sprite.color !== undefined) sprite.setColor(rec.sprite.color);
+        sprite.syncGraphics();
+      }
+      if (physics && rec.physics) {
+        physics.restitution = rec.physics.restitution;
+        physics.friction    = rec.physics.friction;
+        physics.frictionAir = rec.physics.frictionAir;
+        physics.density     = rec.physics.density;
+        physics.gravity     = rec.physics.gravity;
+        physics.fixed       = !!rec.physics.fixed;
+        if (physics.body) {
+          physics.body.restitution = physics.restitution;
+          physics.body.friction    = physics.friction;
+          physics.body.frictionAir = physics.frictionAir;
+          Matter.Body.setStatic(physics.body, physics.fixed);
+          Matter.Body.setPosition(physics.body, { x: sprite.x, y: sprite.y });
+          Matter.Body.setAngle(physics.body, sprite.rotation);
+          Matter.Body.setVelocity(physics.body, { x: 0, y: 0 });
+          Matter.Body.setAngularVelocity(physics.body, 0);
+        }
+      }
+    }
+    this.events.emit('ui:inspectorDirty', this._selectedEntityId);
   }
 
   _toggleAudio () {

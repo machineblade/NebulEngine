@@ -1,4 +1,4 @@
-# NebulEngine v1.1.0
+# NebulEngine v1.2.0
 
 A modular browser-based **game engine** built with **PixiJS** (rendering), **Matter.js** (physics) and **Howler.js** (audio).
 
@@ -70,15 +70,42 @@ bounce, drag and the *fixed* flag in place — changes apply instantly.
 | `Space`                 | Play / pause                            |
 | `Delete` / `Backspace`  | Remove selected entity                  |
 | `Ctrl/Cmd + D`          | Duplicate selected entity               |
+| `Ctrl/Cmd + Z`          | Undo last transform                     |
+| `Ctrl/Cmd + Shift + Z`  | Redo (also `Ctrl/Cmd + Y`)              |
 | `Escape`                | Deselect                                |
 | `0`                     | Reset viewport zoom / pan               |
 | `Alt + L`               | Toggle gizmo local / global space       |
 | Mouse wheel             | Zoom in / out (centered on cursor)      |
 | Middle-mouse drag       | Pan the viewport                        |
-| `Shift` + drag a gizmo  | Snap position to the 20 px grid         |
+| Left-click + drag body  | Free-drag selected entity in X + Y      |
+| Drag gizmo X/Y arrow    | Axis-constrained drag                   |
+| Drag gizmo rotation ring| Rotate the entity                       |
+| `Shift` + drag          | Snap translation to grid / rotation 15° |
 
 Shortcuts are ignored while focus is inside the script editor or an inspector
 field, so typing code never accidentally triggers the engine.
+
+### Play ↔ Edit
+
+Pressing **PLAY** snapshots the entire scene (every entity's position,
+rotation, alpha, color, and physics config). Pressing **STOP** restores that
+snapshot — so anything that moved, rotated, or otherwise changed during
+simulation is reverted back to the state you authored.
+
+### Collision hooks
+
+Scripts can react to Matter.js contacts via two optional methods:
+
+```js
+({
+  onCollide (self, other, pair) {
+    if (other.hasTag('enemy')) self.getComponent('sprite').flash();
+  },
+  onSeparate (self, other, pair) {
+    // called once when the contact ends
+  },
+})
+```
 
 ## Architecture
 
@@ -125,7 +152,39 @@ entity.addComponent('script', new ScriptComponent({
 }));
 ```
 
+## Tests
+
+Unit tests cover `EventBus`, `MathUtils`, and `Entity`. They run under Node's
+built-in test runner — no dependencies, no build step:
+
+```bash
+npm test
+```
+
 ## Changelog
+
+### v1.2.0
+
+- **Click-and-hold to free-drag entities** in both X and Y — no need to reach
+  for the gizmo arrows for simple moves. Hold `Shift` to snap to the grid.
+- **Rotation handle** on the selection gizmo (orange ring above the entity).
+  Hold `Shift` while rotating for 15° steps.
+- **Play ↔ Stop revert** — `STOP` snapshots the edit-time state of every
+  entity on `PLAY` and restores it on stop, so playing around with physics
+  no longer destroys your authored layout.
+- **Edits render immediately while stopped** — dragging the gizmo or editing
+  inspector fields updates the canvas even when the simulation isn't running.
+- **Undo / redo** for transform edits (drags + inspector).
+  `Ctrl/Cmd+Z`, `Ctrl/Cmd+Shift+Z`, and `Ctrl/Cmd+Y`.
+- **Collision hooks** — scripts can implement `onCollide(self, other, pair)`
+  and `onSeparate(self, other, pair)` and receive Matter contact events.
+- **Unit tests** — `npm test` runs Node's built-in test runner across
+  `EventBus`, `MathUtils`, and `Entity`.
+- **Bug fixes**
+  - `_duplicateSelected` now preserves the source entity's rotation.
+  - `Shift`-snap during an axis-constrained gizmo drag only snaps the axis
+    actually being dragged (previously snapped both and yanked the entity
+    off its authored position on the idle axis).
 
 ### v1.1.0
 

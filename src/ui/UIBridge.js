@@ -30,6 +30,11 @@ export class UIBridge {
     this.events.on('scene:updated',           ()   => this._refreshInspector());
     this.events.on('ui:entitySelected',       (id) => this._selectEntity(id));
     this.events.on('editor:spaceModeChanged', ({local}) => this._setSpaceMode(local));
+    // Refresh the inspector on explicit edits even when the scene loop isn't
+    // running (gizmo drags, body drags, inspector edits, undo/redo, STOP revert).
+    this.events.on('ui:inspectorDirty',       (id) => { if (id === this._selected) this._refreshInspector(); });
+    // Rebuild after STOP because a revert may have changed many fields at once.
+    this.events.on('engine:stop',             ()   => { if (this._selected) this._renderInspector(this._selected); });
     // Mirror logger lines into the console panel
     this.events.on('logger:line', ({msg, type, ts}) => this._appendConsoleLine(msg, type, ts));
   }
@@ -590,18 +595,24 @@ export class UIBridge {
       case 'x': case 'y': {
         if (!spr) break;
         const v = parseFloat(raw); if (!Number.isFinite(v)) break;
+        const before = { [field]: spr[field] };
         spr[field] = v;
         if (ph?.body) {
           Matter.Body.setPosition(ph.body, { x: spr.x, y: spr.y });
           Matter.Body.setVelocity(ph.body, { x: 0, y: 0 });
         }
+        spr.syncGraphics();
+        this.engine._recordHistory({ kind: 'transform', id, from: before, to: { [field]: v } });
         break;
       }
       case 'rotation': {
         if (!spr) break;
         const v = parseFloat(raw); if (!Number.isFinite(v)) break;
+        const before = { rotation: spr.rotation };
         spr.rotation = v * Math.PI / 180;
         if (ph?.body) Matter.Body.setAngle(ph.body, spr.rotation);
+        spr.syncGraphics();
+        this.engine._recordHistory({ kind: 'transform', id, from: before, to: { rotation: spr.rotation } });
         break;
       }
       case 'alpha': {

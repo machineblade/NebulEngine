@@ -81,6 +81,15 @@ export class SpriteComponent {
   }
 
   update (dt) {
+    this.syncGraphics();
+  }
+
+  /**
+   * Push x/y/rotation straight to the PIXI Graphics object.
+   * Safe to call when the engine loop isn't running — the PIXI ticker
+   * still renders, so editor edits appear immediately.
+   */
+  syncGraphics () {
     if (!this._gfx) return;
     this._gfx.x        = this.x;
     this._gfx.y        = this.y;
