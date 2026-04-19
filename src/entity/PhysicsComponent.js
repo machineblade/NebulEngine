@@ -56,6 +56,36 @@ export class PhysicsComponent {
     if (!world || !sprite || typeof Matter === 'undefined') return;
 
     this._world = world;
+    const sx = sprite.scaleX ?? 1;
+    const sy = sprite.scaleY ?? 1;
+    this.body = this._createMatterBody(sprite, sx, sy);
+    this._finalizeBody(world);
+    Matter.Body.setVelocity(this.body, { x: this.vx, y: this.vy });
+  }
+
+  /**
+   * Rebuild the Matter body to match sprite.scaleX/scaleY. Called when the
+   * user drags a scale handle — the body's geometry, mass, and moment of
+   * inertia are all recomputed from `sprite.w/h/r * scale`, so collision
+   * now tracks the rendered size.
+   *
+   * Velocity / angular velocity are preserved across the rebuild.
+   */
+  rebuildBody (sprite) {
+    if (!this.body || !this._world || !sprite || typeof Matter === 'undefined') return;
+    const prev = this.body;
+    const v    = prev.velocity;
+    const av   = prev.angularVelocity;
+    Matter.World.remove(this._world, prev);
+    const sx = sprite.scaleX ?? 1;
+    const sy = sprite.scaleY ?? 1;
+    this.body = this._createMatterBody(sprite, sx, sy);
+    this._finalizeBody(this._world);
+    Matter.Body.setVelocity(this.body, { x: v.x, y: v.y });
+    Matter.Body.setAngularVelocity(this.body, av);
+  }
+
+  _createMatterBody (sprite, sx, sy) {
     const x = sprite.x;
     const y = sprite.y;
     const opts = {
@@ -67,25 +97,31 @@ export class PhysicsComponent {
       angle:       sprite.rotation,
       label:       'entity-body',
     };
-
+    let body;
     switch (sprite.shape) {
       case 'rect':
       case 'square':
       case 'rsquare':
-        this.body = Matter.Bodies.rectangle(x, y, sprite.w, sprite.h, opts);
+        body = Matter.Bodies.rectangle(x, y, sprite.w * sx, sprite.h * sy, opts);
         break;
       case 'diamond':
-        this.body = Matter.Bodies.rectangle(x, y, sprite.r * 2, sprite.r * 2, opts);
-        Matter.Body.rotate(this.body, Math.PI / 4);
+        body = Matter.Bodies.rectangle(x, y, sprite.r * 2 * sx, sprite.r * 2 * sy, opts);
+        Matter.Body.rotate(body, Math.PI / 4);
         break;
       case 'star':
       case 'rstar':
-        this.body = Matter.Bodies.polygon(x, y, 5, sprite.r, opts);
+        // Polygons can't go elliptical; use the larger scale so the collision
+        // never clips inside the visible silhouette.
+        body = Matter.Bodies.polygon(x, y, 5, sprite.r * Math.max(sx, sy), opts);
         break;
       default:
-        this.body = Matter.Bodies.circle(x, y, sprite.r, opts);
+        // Circles likewise — preserve the enclosing silhouette.
+        body = Matter.Bodies.circle(x, y, sprite.r * Math.max(sx, sy), opts);
     }
+    return body;
+  }
 
+  _finalizeBody (world) {
     // Back-reference so collision-event listeners can look the entity up.
     this.body.plugin = Object.assign(this.body.plugin || {}, { entity: this._entity });
 
@@ -95,7 +131,6 @@ export class PhysicsComponent {
     this.body.gravityScale = this.gravity && this.gravity.enabled !== false ? 1 : 0;
 
     Matter.World.add(world, this.body);
-    Matter.Body.setVelocity(this.body, { x: this.vx, y: this.vy });
   }
 
   update (dt) {
