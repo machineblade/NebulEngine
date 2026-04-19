@@ -213,18 +213,6 @@ class Engine {
       });
     }
 
-    // Save As expander: reveal the Export button inside the hamburger menu.
-    const saveTog = document.getElementById('hm-save-toggle');
-    const saveSub = document.getElementById('hm-save-sub');
-    if (saveTog && saveSub) {
-      saveTog.addEventListener('click', (e) => {
-        e.stopPropagation();
-        const open = saveSub.hasAttribute('hidden');
-        if (open) saveSub.removeAttribute('hidden');
-        else      saveSub.setAttribute('hidden', '');
-        saveTog.setAttribute('aria-expanded', String(open));
-      });
-    }
   }
 
   // ── Tool / Grid Toolbar ──────────────────────────────────

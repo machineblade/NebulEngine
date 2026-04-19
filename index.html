@@ -76,17 +76,10 @@
 
       <!-- Hamburger dropdown panel (hidden by default) -->
       <div id="hamburger-menu" class="hamburger-menu" role="menu" aria-hidden="true">
-        <!-- Save As: expands to reveal an Export button -->
-        <div class="hm-group" id="hm-save-group">
-          <button class="hm-item hm-expander" id="hm-save-toggle" aria-expanded="false">
-            <span class="hm-icon">💾</span><span class="hm-label">Save As</span><span class="hm-chev">▸</span>
-          </button>
-          <div class="hm-sub" id="hm-save-sub" hidden>
-            <button class="hm-item hm-sub-item" id="btn-save-scene" title="Export scene to JSON">
-              <span class="hm-icon">⤓</span><span class="hm-label">Export</span>
-            </button>
-          </div>
-        </div>
+        <!-- Export: saves the scene to a .json file -->
+        <button class="hm-item" id="btn-save-scene" title="Export scene to JSON">
+          <span class="hm-icon">⤓</span><span class="hm-label">Export</span>
+        </button>
         <!-- Load: opens a .json file picker -->
         <button class="hm-item" id="btn-load-scene" title="Load scene from JSON">
           <span class="hm-icon">📂</span><span class="hm-label">Load</span>
